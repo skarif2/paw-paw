@@ -67,26 +67,26 @@ Paw-Paw automates all of this:
 ## 2. How It Works: Big Picture
 
 ``` plaintext
-                      ┌─────────────────────────────┐
-                      │   Google Spreadsheet          │
-                      │                               │
-                      │  ┌──────────┐  ┌───────────┐ │
-                      │  │ 2025-01  │  │ Holidays  │ │
-                      │  │ 2025-02  │  │  (config) │ │
-                      │  │ …        │  └───────────┘ │
-                      │  └──────────┘                 │
-                      └─────────────┬───────────────┬─┘
-                                    │               │
-               ┌────────────────────▼──┐    ┌───────▼─────────────┐
-               │  Morning Trigger      │    │  Evening Trigger      │
-               │  sendDailySlackBriefing│    │  sendTomorrowHeadcount│
-               └────────────┬──────────┘    └──────────┬────────────┘
-                            │                           │
-               ┌────────────▼──────────┐    ┌──────────▼────────────┐
-               │  Slack Channel        │    │  Discord Channel       │
-               │  Posts today's        │    │  Posts tomorrow's      │
-               │  attendance summary   │    │  meal headcount        │
-               └───────────────────────┘    └───────────────────────┘
+                      ┌─────────────────────────────────┐
+                      │   Google Spreadsheet            │
+                      │                                 │
+                      │  ┌──────────┐   ┌───────────┐   │
+                      │  │ 2025-01  │   │ Holidays  │   │
+                      │  │ 2025-02  │   │  (config) │   │
+                      │  │ …        │   └───────────┘   │
+                      │  └──────────┘                   │
+                      └─────────────┬─────────────────┬─┘
+                                    │                 │
+               ┌────────────────────▼────┐    ┌───────▼─────────────────┐
+               │  Morning Trigger        │    │  Evening Trigger        │
+               │  sendDailySlackBriefing │    │  sendTomorrowHeadcount  │
+               └────────────┬────────────┘    └──────────┬──────────────┘
+                            │                            │
+               ┌────────────▼────────────┐    ┌──────────▼──────────────┐
+               │  Slack Channel          │    │  Discord Channel        │
+               │  Posts today's          │    │  Posts tomorrow's       │
+               │  attendance summary     │    │  meal headcount         │
+               └─────────────────────────┘    └─────────────────────────┘
 ```
 
 **Daily Flow:**
