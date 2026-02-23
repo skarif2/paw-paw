@@ -1,0 +1,5 @@
+# Since rootDir is ./src, clasp only sees files inside src/
+# We ignore everything except our TS files and the manifest
+**/**
+!*.js
+!appsscript.json
