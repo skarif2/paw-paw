@@ -27,6 +27,7 @@ function getUserInfoBatch(userIds: string[]): Record<string, SlackUser> {
           // Filter out bots and deleted accounts — only real humans eat lunch 🐟
           if (!user.is_bot && !user.deleted) {
             userMap[userId] = {
+              id: userId,
               name: user.profile.display_name_normalized || user.profile.real_name_normalized || user.real_name || user.name,
               email: user.profile.email,
               image: user.profile.image_original
@@ -87,6 +88,66 @@ function getChannelUsers(): Record<string, SlackUser> {
 }
 
 /**
+ * Builds the Slack Block Kit blocks array for the daily briefing message.
+ * Keeping this separate makes it easy to tweak the layout without touching the send logic. 🐾
+ * @param {string} dateHeading - Formatted date string, e.g. "Monday, Feb 24"
+ * @param {Record<string, string[]>} groups - Attendance groups keyed by status, values are Slack user IDs
+ * @returns {object[]} Block Kit blocks array ready to attach to a chat.postMessage payload
+ */
+function buildDailyBriefingBlocks(dateHeading: string, groups: Record<string, string[]>): object[] {
+  // � Builds a plain-text table cell (used for headers)
+  const cell = (text: string, bold = false): object => ({
+    type: "rich_text",
+    elements: [{
+      type: "rich_text_section",
+      elements: [{ type: "text", text, ...(bold ? { style: { bold: true } } : {}) }]
+    }]
+  });
+
+  // � Builds a table cell with real Slack @mentions using user IDs — clickable in Slack!
+  const memberCell = (ids: string[]): object => ({
+    type: "rich_text",
+    elements: [{
+      type: "rich_text_section",
+      elements: ids.length > 0
+        ? ids.flatMap((id, i) => [
+            { type: "user", user_id: id },
+            ...(i < ids.length - 1 ? [{ type: "text", text: ", " }] : [])
+          ])
+        : [{ type: "text", text: "None", style: { italic: true } }]
+    }]
+  });
+
+  return [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `${dateHeading} 🐾`, emoji: true }
+    },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: "<!here> — Good morning, Craftsmen! Here’s today’s roll call 🐈" }
+    },
+    {
+      // 🐾 True 3-column table — header row + mentions row
+      type: "table",
+      rows: [
+        [cell("🏢 ON-SITE", true), cell("🏠 WFH", true), cell("🌴 ON LEAVE", true)],
+        [memberCell(groups["Office"]), memberCell(groups["WFH"]), memberCell(groups["Leave"])]
+      ]
+    },
+    {
+      type: "context",
+      elements: [{
+        type: "mrkdwn",
+        // 🐟 Nudge the team to use the thread — cats love nudging things off shelves
+        text: "🐟Post your *status* in the thread *(Starting, AFK, Back, Done)* and feel free to chit-chat too! 💬"
+      }]
+    }
+  ];
+}
+
+
+/**
  * Sends the daily Paw-Paw briefing to the configured Slack channel.
  * Posts a status summary message and kicks off a thread for the day's chat.
  */
@@ -120,9 +181,11 @@ function sendDailySlackBriefing(): void {
   // 3. Find today's data row
   const data = sheet.getDataRange().getValues();
   let todayRow: any[] | null = null;
-  const headers = data[0];
+  const headers = data[0];   // Row 1: display names
+  const idRow = data[1];     // Row 2: hidden Slack user IDs 🐾
 
-  for (let i = 1; i < data.length; i++) {
+  // Data starts at array index 2 (sheet row 3) — skip headers and the hidden ID row
+  for (let i = 2; i < data.length; i++) {
     const rowDate = data[i][0];
     if (rowDate instanceof Date) {
       const rowDateStr = Utilities.formatDate(rowDate, CONFIG.TIMEZONE, "yyyy-MM-dd");
@@ -139,36 +202,29 @@ function sendDailySlackBriefing(): void {
     return;
   }
 
-  // 4. Group members by attendance status
+  // 4. Group members by attendance status (using Slack user IDs for real @mentions 🐾)
   const groups: Record<string, string[]> = { "Office": [], "WFH": [], "Leave": [] };
 
   for (let col = 1; col < headers.length - 1; col++) {
     const status = todayRow[col];
-    const memberName = headers[col];
+    const memberId = idRow[col] as string;
 
-    if (groups[status]) {
-      groups[status].push(memberName);
+    if (groups[status] && memberId) {
+      groups[status].push(memberId);
     }
   }
 
-  // 5. Construct the message
+  // 5. Build the Block Kit message
   const dateHeading = Utilities.formatDate(today, CONFIG.TIMEZONE, "EEEE, MMM d");
-
-  const officeList = groups["Office"].length > 0 ? groups["Office"].join(", ") : "_None_";
-  const wfhList = groups["WFH"].length > 0 ? groups["WFH"].join(", ") : "_None_";
-  const leaveList = groups["Leave"].length > 0 ? groups["Leave"].join(", ") : "_None_";
-
-  const messageText = `<!here> | *${dateHeading}*\n\n` +
-    `*🏢 ON-SITE:* ${officeList}\n` +
-    `*🏠 WFH:* ${wfhList}\n` +
-    `*🌴 MIA:* ${leaveList}\n\n` +
-    `Please post your *status* (Starting, AFK, Back, etc.) in the thread and feel free to *chitchat!*`
+  const blocks = buildDailyBriefingBlocks(dateHeading, groups);
 
   // 6. Send the main message to Slack
   const url = `${CONFIG.SLACK_API_BASE}/chat.postMessage`;
   const mainPayload = {
     channel: SLACK_CHANNEL_ID,
-    text: messageText
+    // Fallback text for notifications / screen readers 🐾
+    text: `<!here> — 🐾 ${dateHeading} Daily Briefing`,
+    blocks
   };
 
   const options: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions = {
@@ -191,12 +247,12 @@ function sendDailySlackBriefing(): void {
 
     console.log("😸 Daily briefing delivered — purrfect!");
 
-    // 7. Reply in the thread to kick off the day's conversation
+    // 7. Reply in the thread to kick off the day's conversation 😸
     const threadTimestamp = result.ts;
 
     const threadPayload = {
       channel: SLACK_CHANNEL_ID,
-      text: "Good morning!",
+      text: "Meoow! 🐱 Thread is open!",
       thread_ts: threadTimestamp
     };
 

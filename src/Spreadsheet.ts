@@ -7,6 +7,12 @@ const ATTENDANCE_OPTIONS = ['Office', 'WFH', 'Leave'] as const;
 /** Valid attendance statuses for a team off-day (office is not an option) */
 const OFFDAY_OPTIONS = ['WFH', 'Leave'] as const;
 
+/** Row index of the hidden Slack ID row — stores immutable user IDs beside display names */
+const ID_ROW = 2;
+
+/** First row index of actual attendance data (below the hidden ID row) */
+const DATA_START = 3;
+
 /**
  * Extracts year, month, and days-in-month from a `yyyy-MM` named sheet.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - A dated roster sheet
@@ -41,13 +47,15 @@ function columnToLetter(column: number): string {
  * @param {number} totalCols - Total columns (used for the top border span)
  */
 function writeSummarySection(sheet: GoogleAppsScript.Spreadsheet.Sheet, daysInMonth: number, memberCount: number, totalCols: number): void {
-  const summaryStartRow = daysInMonth + 4;
+  // +1 for header, +1 for ID row, +1 for gap row, +1 for 1-based = DATA_START + daysInMonth + 1 🐾
+  const summaryStartRow = DATA_START + daysInMonth + 1;
   sheet.getRange(summaryStartRow, 1, 3, 1).setValues([["Office"], ["WFH"], ["Leave"]]).setFontWeight("bold");
   sheet.getRange(summaryStartRow, 1, 1, totalCols).setBorder(true, null, null, null, null, null, "black", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   for (let i = 0; i < memberCount; i++) {
     const colLetter = columnToLetter(i + 2);
-    const dataRange = `${colLetter}2:${colLetter}${daysInMonth + 1}`;
+    // Data starts at DATA_START and runs for daysInMonth rows 🐾
+    const dataRange = `${colLetter}${DATA_START}:${colLetter}${DATA_START + daysInMonth - 1}`;
     sheet.getRange(summaryStartRow, i + 2).setFormula(`=COUNTIF(${dataRange}, "Office")`);
     sheet.getRange(summaryStartRow + 1, i + 2).setFormula(`=COUNTIF(${dataRange}, "WFH")`);
     sheet.getRange(summaryStartRow + 2, i + 2).setFormula(`=COUNTIF(${dataRange}, "Leave")`);
@@ -61,12 +69,13 @@ function writeSummarySection(sheet: GoogleAppsScript.Spreadsheet.Sheet, daysInMo
  * @param {number} totalCols - Total number of columns
  */
 function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows: number, totalCols: number): void {
-  const dataRange = sheet.getRange(2, 1, totalRows, totalCols);
+  // Data rows start at DATA_START — skip the header and hidden ID row 🐾
+  const dataRange = sheet.getRange(DATA_START, 1, totalRows, totalCols);
   const rules: GoogleAppsScript.Spreadsheet.ConditionalFormatRule[] = [];
 
   // 1. Weekend Rule — grey out Saturday and Sunday rows
   rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied("=WEEKDAY($A2, 2) > 5")
+    .whenFormulaSatisfied(`=WEEKDAY($A${DATA_START}, 2) > 5`)
     .setBackground("#EFEFEF")
     .setFontColor("#999999")
     .setRanges([dataRange])
@@ -76,7 +85,7 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
   const { holidays, offdays } = getDateConfig();
   if (holidays.length > 0) {
     const holidayStrings = holidays.map(d => `"${d}"`).join(",");
-    const holidayFormula = `=AND(ISNUMBER(MATCH(TEXT($A2, "yyyy-mm-dd"), {${holidayStrings}}, 0)), WEEKDAY($A2, 2) <= 5)`;
+    const holidayFormula = `=AND(ISNUMBER(MATCH(TEXT($A${DATA_START}, "yyyy-mm-dd"), {${holidayStrings}}, 0)), WEEKDAY($A${DATA_START}, 2) <= 5)`;
 
     rules.push(SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(holidayFormula)
@@ -89,7 +98,7 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
   // 3. Offday Rule — light orange background for team off-days
   if (offdays.length > 0) {
     const offdayStrings = offdays.map(d => `"${d}"`).join(",");
-    const offdayFormula = `=AND(ISNUMBER(MATCH(TEXT($A2, "yyyy-mm-dd"), {${offdayStrings}}, 0)), WEEKDAY($A2, 2) <= 5)`;
+    const offdayFormula = `=AND(ISNUMBER(MATCH(TEXT($A${DATA_START}, "yyyy-mm-dd"), {${offdayStrings}}, 0)), WEEKDAY($A${DATA_START}, 2) <= 5)`;
 
     rules.push(SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(offdayFormula)
@@ -102,11 +111,11 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
   sheet.setConditionalFormatRules(rules);
 
   // 4. Weekly Borders — draw a thick bottom border after each Sunday to visually group weeks
-  const dateValues = sheet.getRange(2, 1, totalRows, 1).getValues();
+  const dateValues = sheet.getRange(DATA_START, 1, totalRows, 1).getValues();
   for (let i = 0; i < dateValues.length; i++) {
     const date = new Date(dateValues[i][0]);
     if (date.getDay() === 0) { // Sunday
-      sheet.getRange(i + 2, 1, 1, totalCols).setBorder(
+      sheet.getRange(i + DATA_START, 1, 1, totalCols).setBorder(
         null, null, true, null, null, null,
         "#666666",
         SpreadsheetApp.BorderStyle.SOLID_MEDIUM
@@ -151,6 +160,8 @@ function createNextMonthSheet(): void {
 
   const sheet = ss.insertSheet(newSheetName);
   const headers = ["Date", ...teamMembers.map(m => m.name), "Total"];
+  // ID row mirrors the header positions — "—" for non-member columns 🐾
+  const idRow = ["—", ...teamMembers.map(m => m.id), "—"];
   const daysInMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
 
   const rows: any[][] = [];
@@ -171,10 +182,11 @@ function createNextMonthSheet(): void {
     };
   });
 
-  // 1. GENERATE ROWS — one row per calendar day
+  // 1. GENERATE ROWS — one row per calendar day (data begins at DATA_START)
   for (let d = 1; d <= daysInMonth; d++) {
     const { date: currentDate, isWeekend, isHoliday, isOffday } = dayInfos[d - 1];
     const rowData: any[] = [currentDate];
+    const rowNum = d + DATA_START - 1; // absolute sheet row for this day
 
     if (isWeekend) {
       teamMembers.forEach(() => rowData.push("-"));
@@ -182,13 +194,16 @@ function createNextMonthSheet(): void {
     } else {
       const defaultValue = (isHoliday || isOffday) ? "Leave" : "Office";
       teamMembers.forEach(() => rowData.push(defaultValue));
-      rowData.push(`=COUNTIF(B${d + 1}:${lastMemberCol}${d + 1}, "Office")`);
+      rowData.push(`=COUNTIF(B${rowNum}:${lastMemberCol}${rowNum}, "Office")`);
     }
     rows.push(rowData);
   }
 
+  // Write header (Row 1), hidden ID row (Row 2), and data rows (Row DATA_START onward)
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground('#a4c2f4').setWrap(true);
-  sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  sheet.getRange(ID_ROW, 1, 1, idRow.length).setValues([idRow]);
+  sheet.hideRows(ID_ROW); // 😼 Out of sight — this row is for machines, not humans
+  sheet.getRange(DATA_START, 1, rows.length, headers.length).setValues(rows);
 
   // 2. SELECTIVE DATA VALIDATION & ROW PROTECTIONS (weekends and holidays are locked)
   const offdayRule = SpreadsheetApp.newDataValidation().requireValueInList([...OFFDAY_OPTIONS], true).build();
@@ -196,10 +211,11 @@ function createNextMonthSheet(): void {
 
   for (let d = 1; d <= daysInMonth; d++) {
     const { dateStr, isWeekend, isHoliday, isOffday } = dayInfos[d - 1];
-    const rowRange = sheet.getRange(d + 1, 2, 1, teamMembers.length);
+    const rowNum = d + DATA_START - 1;
+    const rowRange = sheet.getRange(rowNum, 2, 1, teamMembers.length);
 
     if (isWeekend) {
-      const p = sheet.getRange(d + 1, 1, 1, headers.length).protect().setDescription(`Weekend ${dateStr}`);
+      const p = sheet.getRange(rowNum, 1, 1, headers.length).protect().setDescription(`Weekend ${dateStr}`);
       p.removeEditors(p.getEditors());
     } else if (isHoliday || isOffday) {
       rowRange.setDataValidation(offdayRule);
@@ -208,18 +224,19 @@ function createNextMonthSheet(): void {
     }
 
     if (isHoliday || isOffday) {
-      const p = sheet.getRange(d + 1, 1, 1, headers.length).protect().setDescription(`Offday/Holiday ${dateStr}`);
+      const p = sheet.getRange(rowNum, 1, 1, headers.length).protect().setDescription(`Offday/Holiday ${dateStr}`);
       p.removeEditors(p.getEditors());
     }
   }
 
   // 3. INDIVIDUAL COLUMN PROTECTIONS — each member can only edit their own column
+  // Description keyed by user ID — survives display name changes 😸
   for (let i = 0; i < teamMembers.length; i++) {
     const member = teamMembers[i];
     const colIndex = i + 2; // +1 for Date col, +1 for 1-based index
 
-    const colRange = sheet.getRange(2, colIndex, daysInMonth, 1);
-    const protection = colRange.protect().setDescription(`${member.name}'s Column`);
+    const colRange = sheet.getRange(DATA_START, colIndex, daysInMonth, 1);
+    const protection = colRange.protect().setDescription(`member:${member.id}`);
 
     // Remove everyone, then add only this member back as an editor
     protection.removeEditors(protection.getEditors());
@@ -228,30 +245,34 @@ function createNextMonthSheet(): void {
     }
   }
 
-  // 4. STRUCTURAL PROTECTIONS — lock headers, date column, and totals column
+  // 4. STRUCTURAL PROTECTIONS — lock header, ID row, date column, and totals column
   const headerProt = sheet.getRange(1, 1, 1, headers.length).protect().setDescription("Headers");
   headerProt.removeEditors(headerProt.getEditors());
 
-  const dateProt = sheet.getRange(2, 1, daysInMonth, 1).protect().setDescription("Dates");
+  const idRowProt = sheet.getRange(ID_ROW, 1, 1, idRow.length).protect().setDescription("Member IDs");
+  idRowProt.removeEditors(idRowProt.getEditors());
+
+  const dateProt = sheet.getRange(DATA_START, 1, daysInMonth, 1).protect().setDescription("Dates");
   dateProt.removeEditors(dateProt.getEditors());
 
-  const totalsProt = sheet.getRange(2, headers.length, daysInMonth, 1).protect().setDescription("Totals");
+  const totalsProt = sheet.getRange(DATA_START, headers.length, daysInMonth, 1).protect().setDescription("Totals");
   totalsProt.removeEditors(totalsProt.getEditors());
 
   // 5. SUMMARY SECTION — per-member Office/WFH/Leave counts below the data
   writeSummarySection(sheet, daysInMonth, teamMembers.length, headers.length);
 
-  const summaryStartRow = daysInMonth + 4;
+  const summaryStartRow = DATA_START + daysInMonth + 1;
   const summaryProt = sheet.getRange(summaryStartRow, 1, 3, headers.length).protect().setDescription("Summary");
   summaryProt.removeEditors(summaryProt.getEditors());
 
   // 6. FINAL STYLING — number format, fonts, alignment, frozen panes
-  sheet.getRange(2, 1, rows.length, 1).setNumberFormat("yyyy-mm-dd").setFontWeight("bold");
+  sheet.getRange(DATA_START, 1, rows.length, 1).setNumberFormat("yyyy-mm-dd").setFontWeight("bold");
   addFormattingRules(sheet, daysInMonth, headers.length);
 
   const fullRange = sheet.getRange(1, 1, summaryStartRow + 2, headers.length);
   fullRange.setFontSize(11).setVerticalAlignment("middle").setHorizontalAlignment("center");
   sheet.setRowHeights(1, summaryStartRow + 2, 32);
+  sheet.hideRows(ID_ROW); // Re-hide after bulk setRowHeights resets it 😼
   sheet.setColumnWidth(1, 100);
   if (headers.length > 2) sheet.setColumnWidths(2, headers.length - 1, 90);
 
@@ -272,19 +293,35 @@ function syncAllActiveSheets(): void {
   // 1. Fetch current Slack roster
   const userMap = getChannelUsers();
   const currentSlackUsers = Object.values(userMap).sort((a, b) => a.name.localeCompare(b.name));
-  const currentSlackNames = currentSlackUsers.map(u => u.name);
+  const currentSlackIds = currentSlackUsers.map(u => u.id);
 
-  // 2. GATEKEEPER CHECK — compare sheet headers against the live Slack roster
+  // 2. GATEKEEPER CHECK — compare ID row against live Slack IDs (immune to renames 😸)
   const currentSheet = ss.getSheetByName(currentMonthStr);
   if (currentSheet) {
-    const headers = currentSheet.getRange(1, 1, 1, currentSheet.getLastColumn()).getValues()[0];
-    const sheetMemberNames = headers.slice(1, -1) as string[]; // Exclude "Date" and "Total"
+    const idRowValues = currentSheet.getRange(ID_ROW, 1, 1, currentSheet.getLastColumn()).getValues()[0];
+    // Exclude first ("—") and last ("—") sentinel values to get member IDs only
+    const sheetMemberIds = idRowValues.slice(1, -1) as string[];
 
-    const isSynced = sheetMemberNames.length === currentSlackNames.length &&
-      sheetMemberNames.every(name => currentSlackNames.includes(name));
+    const isSynced = sheetMemberIds.length === currentSlackIds.length &&
+      sheetMemberIds.every(id => currentSlackIds.includes(id));
 
     if (isSynced) {
-      console.log("😸 Roster is purrfect — no sync needed.");
+      // 2a. Even if membership is in sync, check for display name changes 🐾
+      const nameHeaders = currentSheet.getRange(1, 1, 1, currentSheet.getLastColumn()).getValues()[0];
+      const sheetMemberNames = nameHeaders.slice(1, -1) as string[];
+      let nameUpdated = false;
+      sheetMemberIds.forEach((id, idx) => {
+        const liveUser = currentSlackUsers.find(u => u.id === id);
+        if (liveUser && liveUser.name !== sheetMemberNames[idx]) {
+          currentSheet.getRange(1, idx + 2).setValue(liveUser.name);
+          nameUpdated = true;
+        }
+      });
+      if (nameUpdated) {
+        console.log("😸 Roster IDs unchanged — display name(s) silently updated.");
+      } else {
+        console.log("😸 Roster is purrfect — no sync needed.");
+      }
       return;
     }
   }
@@ -295,7 +332,7 @@ function syncAllActiveSheets(): void {
     if (SHEET_DATE_PATTERN.test(sheetName)) {
       if (sheetName >= currentMonthStr) {
         const isFutureSheet = sheetName > currentMonthStr;
-        processSheetSync(sheet, currentSlackUsers, currentSlackNames, isFutureSheet);
+        processSheetSync(sheet, currentSlackUsers, currentSlackIds, isFutureSheet);
       }
     }
   });
@@ -304,61 +341,81 @@ function syncAllActiveSheets(): void {
 }
 
 /**
- * Applies the member sync diff (leavers and joiners) to a single sheet.
+ * Applies the member sync diff (leavers, joiners, and renames) to a single sheet.
+ * Identity is established via the hidden Slack ID row — immune to display name changes. 😸
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - The sheet to update
  * @param {SlackUser[]} currentSlackUsers - Full list of current Slack members
- * @param {string[]} currentSlackNames - Names of current Slack members (for fast lookup)
+ * @param {string[]} currentSlackIds - Slack IDs of current members (for fast lookup)
  * @param {boolean} isFutureSheet - If true, leaver columns are deleted instead of zeroed out
  */
-function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlackUsers: SlackUser[], currentSlackNames: string[], isFutureSheet: boolean): void {
+function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlackUsers: SlackUser[], currentSlackIds: string[], isFutureSheet: boolean): void {
   const today = new Date();
+  const todayDay = today.getDate();
   const { year, month, daysInMonth } = getSheetInfo(sheet);
   const { holidays: holidayList, offdays: offdayList } = getDateConfig();
 
   // 0. PRE-CLEAN: Remove the existing summary area to prevent stale rows or gaps
   const lastRow = sheet.getMaxRows();
   const lastCol = sheet.getMaxColumns();
-  if (lastRow > daysInMonth + 2) {
-    sheet.getRange(daysInMonth + 2, 1, lastRow - (daysInMonth + 1), lastCol).clear().breakApart();
+  // Summary starts at DATA_START + daysInMonth + 1 (i.e., the gap row is DATA_START + daysInMonth)
+  const oldSummaryStart = DATA_START + daysInMonth;
+  if (lastRow > oldSummaryStart) {
+    sheet.getRange(oldSummaryStart, 1, lastRow - oldSummaryStart + 1, lastCol).clear().breakApart();
   }
 
-  let headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  let sheetMemberNames = headers.slice(1, -1) as string[];
+  // Read IDs from the hidden row for identity comparison — names in row 1 are display-only 😸
+  let idRowValues = sheet.getRange(ID_ROW, 1, 1, sheet.getLastColumn()).getValues()[0];
+  let sheetMemberIds = idRowValues.slice(1, -1) as string[];
 
-  // --- 1. HANDLE LEAVERS ---
-  const leaversNames = sheetMemberNames.filter(name => !currentSlackNames.includes(name));
-  leaversNames.forEach(name => {
-    const freshHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const colIndex = freshHeaders.indexOf(name) + 1;
+  // --- 1. HANDLE LEAVERS (matched by Slack ID) ---
+  const leaverIds = sheetMemberIds.filter(id => !currentSlackIds.includes(id));
+  leaverIds.forEach(leaverId => {
+    // Re-read the id row each iteration in case columns shifted after a deletion
+    const freshIdRow = sheet.getRange(ID_ROW, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const colIndex = freshIdRow.indexOf(leaverId) + 1;
     if (colIndex > 0) {
       if (isFutureSheet) {
         sheet.deleteColumn(colIndex);
       } else {
-        const todayDay = today.getDate();
         const remainingDays = daysInMonth - todayDay;
         if (remainingDays > 0) {
-          const range = sheet.getRange(todayDay + 1, colIndex, remainingDays, 1);
+          // Rows for remaining days: start at DATA_START + todayDay, run remainingDays rows
+          const range = sheet.getRange(DATA_START + todayDay, colIndex, remainingDays, 1);
           range.setDataValidation(null); // Strip dropdown so hyphens are allowed
           range.setValues(Array(remainingDays).fill(["-"]));
         }
+        // Strip column protection using the stable ID-based description
         const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
-        const userProt = protections.find(p => p.getDescription().includes(name));
+        const userProt = protections.find(p => p.getDescription() === `member:${leaverId}`);
         if (userProt) userProt.removeEditors(userProt.getEditors());
       }
     }
   });
 
-  headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  sheetMemberNames = headers.slice(1, -1) as string[];
+  // Refresh after potential column deletions
+  idRowValues = sheet.getRange(ID_ROW, 1, 1, sheet.getLastColumn()).getValues()[0];
+  sheetMemberIds = idRowValues.slice(1, -1) as string[];
 
-  // --- 2. HANDLE JOINERS ---
-  const newJoiners = currentSlackUsers.filter(u => !sheetMemberNames.includes(u.name));
+  // --- 1b. HANDLE RENAMES — same ID but display name has changed 🐾 ---
+  const nameHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  sheetMemberIds.forEach((id, idx) => {
+    const liveUser = currentSlackUsers.find(u => u.id === id);
+    const currentName = nameHeaders[idx + 1] as string;
+    if (liveUser && liveUser.name !== currentName) {
+      sheet.getRange(1, idx + 2).setValue(liveUser.name);
+      console.log(`😸 Name updated in ${sheet.getName()}: "${currentName}" → "${liveUser.name}"`);
+    }
+  });
+
+  // --- 2. HANDLE JOINERS (matched by Slack ID) ---
+  const newJoiners = currentSlackUsers.filter(u => !sheetMemberIds.includes(u.id));
   newJoiners.forEach(user => {
-    const insertPos = sheet.getLastColumn();
+    const insertPos = sheet.getLastColumn(); // Insert before the Totals column
     sheet.insertColumnBefore(insertPos);
+    // Write display name to Row 1 and immutable ID to the hidden Row 2
     sheet.getRange(1, insertPos).setValue(user.name).setFontWeight("bold");
+    sheet.getRange(ID_ROW, insertPos).setValue(user.id);
 
-    const todayDay = today.getDate();
     const dropdownRule = SpreadsheetApp.newDataValidation()
       .requireValueInList([...ATTENDANCE_OPTIONS], true)
       .build();
@@ -385,12 +442,12 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
       isPast || isWeekend ? ["-"] : [isHoliday ? "Leave" : "Office"]
     );
 
-    sheet.getRange(2, insertPos, daysInMonth, 1).setValues(columnValues);
+    sheet.getRange(DATA_START, insertPos, daysInMonth, 1).setValues(columnValues);
 
     // Apply data validation using pre-computed info — weekends and past days get no dropdown
     for (let d = 1; d <= daysInMonth; d++) {
       const { isPast, isWeekend, isHoliday, isOffday } = joinerDayInfos[d - 1];
-      const cell = sheet.getRange(d + 1, insertPos);
+      const cell = sheet.getRange(d + DATA_START - 1, insertPos);
       if (isWeekend || isPast) {
         cell.setDataValidation(null);
       } else if (isHoliday || isOffday) {
@@ -400,7 +457,8 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
       }
     }
 
-    const prot = sheet.getRange(2, insertPos, daysInMonth, 1).protect().setDescription(`${user.name}'s Column`);
+    // Description keyed by user ID — survives future renames 😸
+    const prot = sheet.getRange(DATA_START, insertPos, daysInMonth, 1).protect().setDescription(`member:${user.id}`);
     prot.removeEditors(prot.getEditors());
     if (user.email) prot.addEditor(user.email);
   });
@@ -408,13 +466,13 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
   // --- 3. RE-CALCULATE TOTALS & SUMMARY ---
   const finalLastCol = sheet.getLastColumn();
   const memberColLetter = columnToLetter(finalLastCol - 1);
-  const summaryStartRow = daysInMonth + 4;
+  const summaryStartRow = DATA_START + daysInMonth + 1;
 
   const totalFormulas: any[][] = [];
-  for (let r = 2; r <= daysInMonth + 1; r++) {
+  for (let r = DATA_START; r < DATA_START + daysInMonth; r++) {
     totalFormulas.push([`=COUNTIF(B${r}:${memberColLetter}${r}, "Office")`]);
   }
-  sheet.getRange(2, finalLastCol, daysInMonth, 1).setFormulas(totalFormulas);
+  sheet.getRange(DATA_START, finalLastCol, daysInMonth, 1).setFormulas(totalFormulas);
 
   const totalMembers = finalLastCol - 2;
   writeSummarySection(sheet, daysInMonth, totalMembers, finalLastCol);
@@ -422,6 +480,7 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
   // --- 4. FINAL STYLING & RULES ---
   sheet.getRange(1, 1, 1, finalLastCol).setBackground('#a4c2f4').setHorizontalAlignment("center");
   sheet.getRange(summaryStartRow, 2, 3, totalMembers).setHorizontalAlignment("center");
+  sheet.hideRows(ID_ROW); // Re-hide after row height resets — machines only 😼
 
   addFormattingRules(sheet, daysInMonth, finalLastCol);
 
@@ -453,7 +512,8 @@ function refreshSheetHolidayFormatting(sheet: GoogleAppsScript.Spreadsheet.Sheet
   // For the current month, we only update colors to avoid overwriting manual attendance.
   if (isFutureSheet) {
     for (let d = 1; d <= daysInMonth; d++) {
-      const rowNum = d + 1;
+      // rowNum maps calendar day d to its absolute sheet row (data starts at DATA_START) 🐾
+      const rowNum = d + DATA_START - 1;
       const date = new Date(year, month - 1, d);
       const dateStr = Utilities.formatDate(date, CONFIG.TIMEZONE, "yyyy-MM-dd");
 

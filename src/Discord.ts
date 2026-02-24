@@ -28,8 +28,8 @@ function lockRowByDate(date: string): void {
   const data = sheet.getDataRange().getValues();
   const dateStr = Utilities.formatDate(dateToLock, CONFIG.TIMEZONE, "yyyy-MM-dd");
 
-  // Skip the header row (index 0); match rows by date string
-  for (let i = 1; i < data.length; i++) {
+  // Skip index 0 (header) and index 1 (hidden ID row) — data rows start at index 2 🐾
+  for (let i = 2; i < data.length; i++) {
     const rowDate = data[i][0];
 
     if (rowDate instanceof Date) {
@@ -79,7 +79,8 @@ function sendTomorrowHeadcount(): void {
     const data = sheet.getDataRange().getValues();
     let yesCount: number | string = 0;
 
-    for (let i = 1; i < data.length; i++) {
+    // Skip index 0 (header) and index 1 (hidden ID row) — data rows start at index 2 🐾
+    for (let i = 2; i < data.length; i++) {
       const rowDate = data[i][0];
       if (rowDate instanceof Date) {
         const rowDateStr = Utilities.formatDate(rowDate, CONFIG.TIMEZONE, "yyyy-MM-dd");
