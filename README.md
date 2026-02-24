@@ -186,16 +186,19 @@ Each month has its own sheet tab named in `yyyy-MM` format (e.g., `2025-01`, `20
 
 **Structure:**
 
-| Column A | Column B | Column C | … | Last Column |
-| --- | --- | --- | --- | --- |
-| **Date** | **Alice** | **Bob** | … | **Total** |
-| 2025-01-01 | Leave | Leave | … | — |
-| 2025-01-02 | Office | WFH | … | 3 |
-| … | … | … | … | … |
+| Row | Column A | Column B | Column C | … | Last Column |
+| --- | --- | --- | --- | --- | --- |
+| **Row 1** | **Date** | **Alice** | **Bob** | … | **Total** |
+| **Row 2** | — | `U123` (ID) | `U456` (ID) | … | — |
+| **Row 3** | 2025-01-01 | Leave | Leave | … | — |
+| **Row 4** | 2025-01-02 | Office | WFH | … | 3 |
+| … | … | … | … | … | … |
 
+- **Row 1 (Header):** Member names (Slack display names).
+- **Row 2 (Hidden ID Row):** Immutable Slack User IDs. Hidden via `hideRows()`; used for stable roster sync.
 - **Column A (Date):** Formatted `yyyy-MM-dd`. Locked; no one can edit it.
-- **Member Columns (B to second-to-last):** Each member has their own column. The header is their Slack display name. Each member can only edit their own column (enforced via Google Sheets column protections, with their Google email address added as the editor).
-- **Last Column (Total):** A `COUNTIF` formula that counts "Office" entries for that row. Locked.
+- **Member Columns (B to second-to-last):** Each member has their own column. Each member can only edit their own column (enforced via column protections).
+- **Last Column (Total):** A `COUNTIF` formula counting "Office" entries for that row. Locked.
 
 **Row States:**
 
@@ -209,21 +212,21 @@ Each month has its own sheet tab named in `yyyy-MM` format (e.g., `2025-01`, `20
 
 **Summary Section (below data rows):**
 
-Three rows appearing 3 rows below the last date row (i.e., `daysInMonth + 4`):
+Appears 1 row below the last date row (i.e., `DATA_START + daysInMonth + 1`):
 
 | | Alice | Bob | … |
 | --- | --- | --- | --- |
-| **Office** | `=COUNTIF(B2:B32,"Office")` | … | … |
-| **WFH** | `=COUNTIF(B2:B32,"WFH")` | … | … |
-| **Leave** | `=COUNTIF(B2:B32,"Leave")` | … | … |
+| **Office** | `=COUNTIF(B3:B33,"Office")` | … | … |
+| **WFH** | `=COUNTIF(B3:B33,"WFH")` | … | … |
+| **Leave** | `=COUNTIF(B3:B33,"Leave")` | … | … |
 
 **Conditional Formatting (applied automatically):**
 
 | Rule | Background | Font | Condition |
 | --- | --- | --- | --- |
-| Weekend | `#EFEFEF` (grey) | `#999999` | `WEEKDAY($A2, 2) > 5` |
-| Holiday | `#D9EAD3` (light green) | `#274E13` (dark green) | Date matches a holiday in the Holidays sheet |
-| Offday | `#FCE5CD` (light orange) | `#B45F06` (dark orange) | Date matches an offday in the Holidays sheet |
+| Weekend | `#EFEFEF` (grey) | `#999999` | `WEEKDAY($A3, 2) > 5` |
+| Holiday | `#D9EAD3` (light green) | `#274E13` (dark green) | Date matches a holiday record |
+| Offday | `#FCE5CD` (light orange) | `#B45F06` (dark orange) | Date matches an offday record |
 
 Weekly borders (thick bottom) are drawn after each Sunday to visually group weeks.
 
