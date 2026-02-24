@@ -8,7 +8,7 @@
 2. Sending a daily attendance briefing to Slack every morning.
 3. Calculating tomorrow's office headcount and posting it to a Discord meal-ordering channel every evening.
 
-Everything is automated via time-based triggers. The script also handles edge cases (weekends, public holidays, team off-days, Ramadan, member joins/leaves) without any manual intervention.
+Everything is automated via time-based triggers. The script also handles edge cases (weekends, public holidays, working holidays, team off-days, Permitted Home Office events, member joins/leaves) without any manual intervention.
 
 ---
 
@@ -225,6 +225,8 @@ Appears 1 row below the last date row (i.e., `DATA_START + daysInMonth + 1`):
 | Rule | Background | Font | Condition |
 | --- | --- | --- | --- |
 | Weekend | `#EFEFEF` (grey) | `#999999` | `WEEKDAY($A3, 2) > 5` |
+| Working Holiday | `#CCEBE0` (light blue-green) | *Default* | Date matches a working holiday record |
+| Permitted Home Office | `#F8F3E5` (light beige) | *Default* | Date falls within a permitted home office range |
 | Holiday | `#D9EAD3` (light green) | `#274E13` (dark green) | Date matches a holiday record |
 | Offday | `#FCE5CD` (light orange) | `#B45F06` (dark orange) | Date matches an offday record |
 
@@ -238,25 +240,27 @@ A special sheet tab named exactly **`Holidays`** (case-sensitive). This is the s
 
 **Layout:**
 
-| Column A | Column B | Column C | Column E | Column F |
-| --- | --- | --- | --- | --- |
-| **Date** | **Name** | **Type** | **Key** | **Value** |
-| 2025-02-21 | Ekushey February | Holiday | Start | 2025-03-01 |
-| 2025-03-17 | Sheikh Mujib Birthday | Holiday | End | 2025-03-30 |
-| 2025-05-01 | May Day | Holiday | | |
-| 2025-03-14 | Team Offday | Offday | | |
+| Column A | Column B | Column C | Column D | Column E | Column F | Column G |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Date** | **Name** | **Type** | *(Empty)* | **P. WFH Name** | **Start Date** | **End Date** |
+| 2025-02-21 | Ekushey February | Holiday | | Ramadan | 2025-03-01 | 2025-03-30 |
+| 2025-03-17 | Sheikh Mujib Birthday | Holiday | | Pre-Eid WFH | 2025-04-01 | 2025-04-05 |
+| 2025-05-01 | May Day | W. Holiday | | | | |
+| 2025-03-14 | Team Offday | Offday | | | | |
 
 - **Col A:** Date (Date cell type; GAS will parse it).
-- **Col B:** Human-readable name (for reference only).
-- **Col C:** Type. Must be exactly `Holiday` or `Offday` (case-sensitive).
-  - `Holiday` → green row, no office option, row locked.
-  - `Offday` → orange row, no office option, row locked.
-- **Col E2 / F2:** Label `Start` / Ramadan start date.
-- **Col E3 / F3:** Label `End` / Ramadan end date.
+- **Col B:** Human-readable name used for Date Cell Comments.
+- **Col C:** Type. Must be `Holiday`, `Offday`, or `W. Holiday`.
+  - `Holiday` / `Offday` → green/orange row, default `Leave`, row locked.
+  - `W. Holiday` → light blue-green row, default `H. WFH`, row locked.
+- **Col E-G (Permitted Home Office Ranges):** Define special date ranges (e.g., Ramadan, Election days) where members are allowed home office without penalty.
+  - **Col E:** Name of the event (e.g., "Ramadan") used in cell comments.
+  - **Col F & G:** Start Date and End Date.
+  - Generates light beige rows. The default attendance value remains `Office`, but members can select `P. WFH`.
 
-> **Important:** Row 1 is the header row and is skipped. Ramadan dates go in rows 2 and 3 of columns E/F specifically.
+> **Important:** Row 1 is the header row and is skipped. Permitted Home Office ranges go in columns E, F, and G. You can add as many ranges as needed down the rows.
 
-When a Ramadan date range is active, the Discord meal message changes format from `**N**` to `Lunch: **0**, Iftar: **N**`.
+When a date falls inside a Permitted Home Office range, the Discord meal message changes format from `**N**` to `Lunch: **0**, Iftar: **N**`.
 
 ---
 
@@ -276,6 +280,7 @@ const CONFIG: AppConfig = {
     AVATAR_URL: '...',    // Avatar shown on Discord messages
   },
   TIMEZONE: 'GMT+6',
+  EXCLUDED_USERS: [],     // Slack IDs of users the bot should completely ignore (e.g. admins)
 };
 ```
 
@@ -295,15 +300,15 @@ A map of string keys used to read/write `PropertiesService`. Centralizes key nam
 
 #### `getDateConfig(): DateConfig`
 
-**Purpose:** Reads the `Holidays` sheet and returns `{ holidays: string[], offdays: string[], ramadan: { start, end } }`.
+**Purpose:** Reads the `Holidays` sheet and returns arrays for `holidays`, `offdays`, `workingHolidays`, and `permittedHomeOffice` (with names and start/end dates).
 
 **How it works:**
 
 1. Checks `_dateConfig` cache. If populated, returns immediately.
 2. Finds the `Holidays` sheet by name.
 3. Reads the entire data range in a single `getValues()` call.
-4. Iterates rows (skipping header), classifies each date as `Holiday` or `Offday`, formats as `yyyy-MM-dd` strings.
-5. Reads Ramadan dates from E2/F2 and E3/F3.
+4. Iterates rows (skipping header), classifies each date as `Holiday`, `Offday`, or `W. Holiday`, caching their `name` and date.
+5. Scrapes columns E, F, and G for dynamic `permittedHomeOffice` date ranges.
 6. Caches result and returns.
 
 **Fallback:** If no `Holidays` sheet exists, logs a warning and returns empty arrays (graceful degradation). The app continues running without holiday logic.
@@ -321,8 +326,9 @@ All communication with the Slack API lives here.
 **How it works:**
 
 1. Calls `conversations.members` with `limit=100`, paginating via cursor up to 5 pages (500 members max).
-2. For each page of member IDs, calls `getUserInfoBatch()`.
-3. Returns a map of `userId → SlackUser { name, email, image }`.
+2. Filters out any Slack user IDs present in `CONFIG.EXCLUDED_USERS` (these members are treated as if they are not in the channel completely).
+3. For each page of remaining member IDs, calls `getUserInfoBatch()`.
+4. Returns a map of `userId → SlackUser { name, email, image }`.
 
 **What counts as a valid member?** Only users where `is_bot === false` AND `deleted === false`. Slackbots, deleted users, and deactivated accounts are excluded.
 
@@ -427,17 +433,21 @@ Everything related to creating, populating, and maintaining the Google Sheets li
 2. **Calculate target month.** Adds 1 month to the latest sheet's date.
 3. **Guard:** If the sheet already exists, exits immediately (idempotent).
 4. **Fetch Slack roster.** Calls `getChannelUsers()` to get current members, sorted alphabetically by name.
-5. **Pre-compute day metadata.** For each day in the month, calculates: `isWeekend`, `isHoliday`, `isOffday`. Done once to avoid repeated date comparisons.
+5. **Pre-compute day metadata.** For each day in the month, calculates: `isWeekend`, `holEvent`, `offEvent`, `wholEvent`, and checks if the date falls in a `permittedHomeOffice` range. Done once to avoid repeated date comparisons.
 6. **Generate rows.** One row per calendar day:
    - Weekends: all cells set to `"—"`.
-   - Holidays/Offdays: all member cells set to `"Leave"`.
-   - Working days: all member cells set to `"Office"`.
-   - Total column: COUNTIF formula counting "Office" in the row.
+   - Holidays/Offdays: all member cells set to `"Holiday"`.
+   - Working Holidays: all member cells set to `"H. WFH"`.
+   - Working days (and P. WFH days): all member cells set to `"Office"`.
+   - Total column: COUNTIF formula counting "Office" and "H. Office" in the row.
 7. **Write to sheet.** Batch-writes header row + all data rows in two `setValues()` calls.
 8. **Data Validation.** Per row:
    - Weekends: no validation (they're locked anyway).
-   - Holidays/Offdays: dropdown `[WFH, Leave]`.
+   - Holidays: dropdown `[H. Office, H. WFH, Holiday]`.
+   - Offdays: dropdown `[H. WFH, Holiday]`.
+   - Working Holidays: dropdown `[H. Office, H. WFH, Holiday]`.
    - Working days: dropdown `[Office, WFH, Leave]`.
+   - Permitted Home Office: dropdown `[Office, P. WFH, Leave]`.
 9. **Row Protections.** Weekend rows and holiday/offday rows are fully locked (no editors).
 10. **Column Protections.** Each member column is protected with only that member's email as editor. This is the key mechanism that prevents members from editing each other's status.
 11. **Structural Protections.** The header row, date column (col A), and totals column (last col) are locked.
@@ -491,9 +501,9 @@ After processing, recalculates Total column formulas and rewrites the summary se
 
 **What it does:**
 
-- **Future sheets:** Updates cell values (sets holidays/offdays back to `"Leave"`, restores `"Office"` if a date was accidentally un-marked), updates data validation dropdowns, re-applies row protections.
-- **Current month:** Only re-applies conditional formatting colors (does NOT touch cell values, preserving manually entered attendance).
-- Weekend rows are always skipped.
+- **Future sheets:** Updates cell values (sets holidays/offdays back to `"Holiday"`, restores `"Office"` if a date was accidentally un-marked, changes "P. WFH" ranges properly), updates data validation dropdowns, re-applies row protections.
+- **Current month:** Only re-applies conditional formatting colors and sets proper `setNote()` cell comments (does NOT touch cell values, preserving manually entered attendance).
+- Weekend rows are always skipped for notes and formats.
 
 #### `checkAndCreateFutureSheet(): void`
 
@@ -536,10 +546,10 @@ This means if the trigger runs multiple times in a day (e.g., manual retry), it 
 
 **Purpose:** Formats the Discord message content.
 
-- **During Ramadan:** `Lunch: **0**, Iftar: **N**`
+- **During Permitted Home Office (e.g. Ramadan):** `Lunch: **0**, Iftar: **N**`
 - **Regular days:** `**N**`
 
-Ramadan detection: checks if `dateStr` falls within the `[ramadan.start, ramadan.end]` range from `getDateConfig()`. Uses simple string comparison (ISO date strings sort correctly lexicographically).
+Event detection: checks if `dateStr` falls inside any of the `permittedHomeOffice` start/end ranges from `getDateConfig()`. Uses simple string comparison (ISO date strings sort correctly lexicographically).
 
 #### `sendNewDiscordMessage(dateStr, yesCount): void`
 
