@@ -19,8 +19,8 @@ A specialized automation system built for a software engineering team in Dhaka. 
 
 ## Core Features
 
-1. **Slack Synchronization**: Automatically manages joiners/leavers.
-2. **Attendance Tracking**: Groups members by 'Office', 'WFH', and 'Leave'.
+1. **Slack Synchronization**: Automatically manages joiners/leavers. Completely ignores admins listed in `EXCLUDED_USERS`.
+2. **Attendance Tracking**: Tracks statuses including 'Office', 'WFH', 'Leave', along with special event variants like 'P. WFH' (Permitted Home Office) and 'H. WFH' (Working Holidays).
 3. **Meal Headcount**: Calculates tomorrow's count and updates Discord webhooks.
 4. **Nightly Routine**:
     - Sends tomorrow's meal count.
