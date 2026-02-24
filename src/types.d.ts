@@ -1,13 +1,15 @@
 interface DateConfig {
-  holidays: string[];
-  offdays: string[];
-  ramadan: { start: string; end: string };
+  holidays: { date: string; name: string }[];
+  offdays: { date: string; name: string }[];
+  workingHolidays: { date: string; name: string }[];
+  permittedHomeOffice: { name: string; start: string; end: string }[];
 }
 
 interface AppConfig {
   SLACK_API_BASE: string;
   DISCORD: { USERNAME: string; AVATAR_URL: string };
   TIMEZONE: string;
+  EXCLUDED_USERS: string[];
 }
 
 interface ScriptProperties {

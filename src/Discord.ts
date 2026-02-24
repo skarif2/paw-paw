@@ -61,7 +61,7 @@ function sendTomorrowHeadcount(): void {
     const tomorrowSheetName = Utilities.formatDate(tomorrow, CONFIG.TIMEZONE, "yyyy-MM");
 
     const isWeekend = tomorrow.getDay() === 0 || tomorrow.getDay() === 6;
-    const isOffday = getDateConfig().offdays.includes(tomorrowStr);
+    const isOffday = getDateConfig().offdays.some(h => h.date === tomorrowStr);
 
     if (isWeekend || isOffday) {
       console.log(`😴 Napping — ${tomorrowStr} is a non-working day, no headcount needed.`);
@@ -139,10 +139,13 @@ function sendOrUpdateDiscordMessage(dateStr: string, yesCount: number): void {
  * @returns {string} The formatted content string to post
  */
 function getMealMessageContent(dateStr: string, yesCount: number): string {
-  const { start: ramadanStart, end: ramadanEnd } = getDateConfig().ramadan;
+  const { permittedHomeOffice } = getDateConfig();
 
-  // 🐾 yyyy-MM-dd strings compare correctly as plain text — purr-fect lexicographic ordering
-  if (dateStr >= ramadanStart && dateStr <= ramadanEnd) {
+  // 🐾 Check if dateStr falls broadly into any of the Permitted HO ranges
+  // Assuming Permitted HO maps to Ramadan rules for meals.
+  const isPermittedHO = permittedHomeOffice.some(pHO => dateStr >= pHO.start && dateStr <= pHO.end);
+
+  if (isPermittedHO) {
     return `Lunch: **0**, Iftar: **${yesCount}**`;
   }
 

@@ -6,6 +6,7 @@ const CONFIG: AppConfig = {
     AVATAR_URL: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f37d.png',
   },
   TIMEZONE: 'GMT+6', // e.g. 'Asia/Dhaka', 'UTC', 'America/New_York'
+  EXCLUDED_USERS: [], // 🐾 Slack IDs of users the bot should completely ignore (e.g. admins)
 };
 
 const PROPERTY_KEYS = {
@@ -58,39 +59,45 @@ function getDateConfig(): DateConfig {
   if (!sheet) {
     // 🙀 Hissing — no Holidays tab found, falling back to empty lists
     console.warn('🙀 Holidays sheet not found — date config will be empty!');
-    _dateConfig = { holidays: [], offdays: [], ramadan: { start: '', end: '' } };
+    _dateConfig = { holidays: [], offdays: [], workingHolidays: [], permittedHomeOffice: [] };
     return _dateConfig;
   }
 
   const data = sheet.getDataRange().getValues();
-  const holidays: string[] = [];
-  const offdays: string[] = [];
+  const holidays: { date: string; name: string }[] = [];
+  const offdays: { date: string; name: string }[] = [];
+  const workingHolidays: { date: string; name: string }[] = [];
+  const permittedHomeOffice: { name: string; start: string; end: string }[] = [];
 
   // Row 0 is the header — start at row 1 🐾
   for (let i = 1; i < data.length; i++) {
-    const raw = data[i][0];
-    const type = String(data[i][2]).trim();
+    const rawDate = data[i][0];
+    const holName = String(data[i][1] || '').trim();
+    const type = String(data[i][2] || '').trim();
 
-    if (!raw || !type) continue;
+    if (rawDate && type) {
+      const dateStr = Utilities.formatDate(new Date(rawDate), CONFIG.TIMEZONE, 'yyyy-MM-dd');
+      if (type === 'Holiday') holidays.push({ date: dateStr, name: holName });
+      else if (type === 'Offday') offdays.push({ date: dateStr, name: holName });
+      else if (type === 'W. Holiday') workingHolidays.push({ date: dateStr, name: holName });
+    }
 
-    const dateStr = Utilities.formatDate(new Date(raw), CONFIG.TIMEZONE, 'yyyy-MM-dd');
-    if (type === 'Holiday') holidays.push(dateStr);
-    else if (type === 'Offday') offdays.push(dateStr);
+    // Parse Permitted Home Office ranges from cols E, F, G (indices 4, 5, 6)
+    const phName = String(data[i][4] || '').trim();
+    const phStart = data[i][5];
+    const phEnd = data[i][6];
+
+    if (phName && phStart && phEnd) {
+      const toDateStr = (val: any) => (val instanceof Date ? Utilities.formatDate(val, CONFIG.TIMEZONE, 'yyyy-MM-dd') : String(val).trim());
+      permittedHomeOffice.push({
+        name: phName,
+        start: toDateStr(phStart),
+        end: toDateStr(phEnd)
+      });
+    }
   }
 
-  // Ramadan: E2 = 'Start' / F2 = date; E3 = 'End' / F3 = date
-  const toDateStr = (val: any): string => {
-    if (!val) return '';
-    if (val instanceof Date) return Utilities.formatDate(val, CONFIG.TIMEZONE, 'yyyy-MM-dd');
-    return String(val).trim();
-  };
-
-  const ramadan = {
-    start: data.length > 1 ? toDateStr(data[1][5]) : '',
-    end:   data.length > 2 ? toDateStr(data[2][5]) : '',
-  };
-
-  _dateConfig = { holidays, offdays, ramadan };
-  console.log(`😸 Date config loaded — ${holidays.length} holiday(s), ${offdays.length} offday(s).`);
+  _dateConfig = { holidays, offdays, workingHolidays, permittedHomeOffice };
+  console.log(`😸 Date config loaded — ${holidays.length} holiday(s), ${offdays.length} offday(s), ${workingHolidays.length} working holiday(s), ${permittedHomeOffice.length} perm HO range(s).`);
   return _dateConfig;
 }

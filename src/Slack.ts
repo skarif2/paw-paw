@@ -74,7 +74,10 @@ function getChannelUsers(): Record<string, SlackUser> {
       throw new Error(`Failed to get channel members: ${result.data?.error || result.error}`);
     }
 
-    const userIds: string[] = result.data.members;
+    const allMemberIds: string[] = result.data.members;
+    const userIds = allMemberIds.filter(id => !CONFIG.EXCLUDED_USERS.includes(id));
+    
+    // We only fetch info for IDs that are not excluded 🐾
     const userInfoBatch = getUserInfoBatch(userIds);
 
     Object.assign(userMap, userInfoBatch);
@@ -95,28 +98,30 @@ function getChannelUsers(): Record<string, SlackUser> {
  * @returns {object[]} Block Kit blocks array ready to attach to a chat.postMessage payload
  */
 function buildDailyBriefingBlocks(dateHeading: string, groups: Record<string, string[]>): object[] {
-  // � Builds a plain-text table cell (used for headers)
-  const cell = (text: string, bold = false): object => ({
-    type: "rich_text",
-    elements: [{
-      type: "rich_text_section",
-      elements: [{ type: "text", text, ...(bold ? { style: { bold: true } } : {}) }]
-    }]
-  });
+  const createRichTextElements = (prefixText: string, ids: string[]): any[] => {
+    const elements: any[] = [
+      {
+        type: "text",
+        text: prefixText,
+        style: { bold: true }
+      }
+    ];
 
-  // � Builds a table cell with real Slack @mentions using user IDs — clickable in Slack!
-  const memberCell = (ids: string[]): object => ({
-    type: "rich_text",
-    elements: [{
-      type: "rich_text_section",
-      elements: ids.length > 0
-        ? ids.flatMap((id, i) => [
-            { type: "user", user_id: id },
-            ...(i < ids.length - 1 ? [{ type: "text", text: ", " }] : [])
-          ])
-        : [{ type: "text", text: "None", style: { italic: true } }]
-    }]
-  });
+    if (ids.length === 0) {
+      elements.push({ type: "text", text: "None", style: { italic: true } });
+      return elements;
+    }
+
+    ids.forEach((id, index) => {
+      elements.push({ type: "user", user_id: id });
+      // Add a comma and space after each mention except the last one
+      if (index < ids.length - 1) {
+        elements.push({ type: "text", text: ", " });
+      }
+    });
+
+    return elements;
+  };
 
   return [
     {
@@ -128,12 +133,27 @@ function buildDailyBriefingBlocks(dateHeading: string, groups: Record<string, st
       text: { type: "mrkdwn", text: "<!here> — Good morning, Craftsmen! Here’s today’s roll call 🐈" }
     },
     {
-      // 🐾 True 3-column table — header row + mentions row
-      type: "table",
-      rows: [
-        [cell("🏢 ON-SITE", true), cell("🏠 WFH", true), cell("🌴 ON LEAVE / HOLIDAY", true)],
-        [memberCell(groups["Office"]), memberCell(groups["WFH"]), memberCell(groups["Leave"])]
-      ]
+      type: "divider"
+    },
+    {
+      type: "rich_text",
+      elements: [
+        {
+          type: "rich_text_quote",
+          elements: createRichTextElements("🏢 ON-SITE: ", groups["Office"])
+        },
+        {
+          type: "rich_text_quote",
+          elements: createRichTextElements("🏠 WFH: ", groups["WFH"])
+        },
+        {
+          type: "rich_text_quote",
+          elements: createRichTextElements("🌴 ON LEAVE / HOLIDAY: ", groups["Leave"])
+        }
+      ],
+    },
+    {
+      type: "divider"
     },
     {
       type: "context",
@@ -148,12 +168,69 @@ function buildDailyBriefingBlocks(dateHeading: string, groups: Record<string, st
 
 
 /**
+ * Reads the sheet for a specific date and returns the grouped attendance by Slack user ID.
+ * @param {Date} targetDate - The date object for the day to check
+ * @param {string} dateStr - The date string in yyyy-MM-dd format
+ * @returns {Record<string, string[]> | null} Groups of member IDs, or null if no valid data found
+ */
+function getAttendanceGroupsByDate(targetDate: Date, dateStr: string): Record<string, string[]> | null {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetName = Utilities.formatDate(targetDate, CONFIG.TIMEZONE, "yyyy-MM");
+  const sheet = ss.getSheetByName(sheetName);
+
+  if (!sheet) {
+    console.warn(`🙀 No sheet found for ${sheetName} — where did it go?!`);
+    return null;
+  }
+
+  const data = sheet.getDataRange().getValues();
+  let targetRow: any[] | null = null;
+  const headers = data[0];   // Row 1: display names
+  const idRow = data[1];     // Row 2: hidden Slack user IDs 🐾
+
+  // Data starts at array index 2 (sheet row 3) — skip headers and the hidden ID row
+  for (let i = 2; i < data.length; i++) {
+    const rowDate = data[i][0];
+    if (rowDate instanceof Date) {
+      const rowDateStr = Utilities.formatDate(rowDate, CONFIG.TIMEZONE, "yyyy-MM-dd");
+      if (rowDateStr === dateStr) {
+        targetRow = data[i];
+        break;
+      }
+    }
+  }
+
+  // Fallback: if the sheet itself marks this as a non-working day ("-"), bail out
+  if (!targetRow || targetRow[1] === "-") {
+    console.log(`😿 No valid data found for ${dateStr}. Staying quiet.`);
+    return null;
+  }
+
+  // Group members by attendance status (using Slack user IDs for real @mentions 🐾)
+  const groups: Record<string, string[]> = { "Office": [], "WFH": [], "Leave": [], "Holiday": [] };
+
+  for (let col = 1; col < headers.length - 1; col++) {
+    const status = targetRow[col];
+    const memberId = idRow[col] as string;
+
+    if (memberId) {
+      if (CONFIG.EXCLUDED_USERS.includes(memberId)) continue; // 🐾 Invisible cats
+
+      if (status === "H. Office") groups["Office"].push(memberId);
+      else if (status === "H. WFH" || status === "P. WFH") groups["WFH"].push(memberId);
+      else if (groups[status]) groups[status].push(memberId);
+    }
+  }
+
+  return groups;
+}
+
+/**
  * Sends the daily Paw-Paw briefing to the configured Slack channel.
  * Posts a status summary message and kicks off a thread for the day's chat.
  */
 function sendDailySlackBriefing(): void {
   const { SLACK_TOKEN, SLACK_CHANNEL_ID } = getProperties();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const today = new Date();
   const todayStr = Utilities.formatDate(today, CONFIG.TIMEZONE, "yyyy-MM-dd");
 
@@ -164,58 +241,15 @@ function sendDailySlackBriefing(): void {
     return;
   }
 
-  if (getDateConfig().offdays.includes(todayStr)) {
+  const { holidays, offdays } = getDateConfig();
+  if (holidays.some(h => h.date === todayStr) || offdays.some(o => o.date === todayStr)) {
     console.log("😴 It's an off-day — paws up. No briefing today.");
     return;
   }
 
-  // 2. Get the current month's sheet
-  const sheetName = Utilities.formatDate(today, CONFIG.TIMEZONE, "yyyy-MM");
-  const sheet = ss.getSheetByName(sheetName);
-
-  if (!sheet) {
-    console.warn(`🙀 No sheet found for ${sheetName} — where did it go?!`);
-    return;
-  }
-
-  // 3. Find today's data row
-  const data = sheet.getDataRange().getValues();
-  let todayRow: any[] | null = null;
-  const headers = data[0];   // Row 1: display names
-  const idRow = data[1];     // Row 2: hidden Slack user IDs 🐾
-
-  // Data starts at array index 2 (sheet row 3) — skip headers and the hidden ID row
-  for (let i = 2; i < data.length; i++) {
-    const rowDate = data[i][0];
-    if (rowDate instanceof Date) {
-      const rowDateStr = Utilities.formatDate(rowDate, CONFIG.TIMEZONE, "yyyy-MM-dd");
-      if (rowDateStr === todayStr) {
-        todayRow = data[i];
-        break;
-      }
-    }
-  }
-
-  // Fallback: if the sheet itself marks this as a non-working day ("-"), bail out
-  if (!todayRow || todayRow[1] === "-") {
-    console.log("😿 No valid data found for today. Staying quiet.");
-    return;
-  }
-
-  // 4. Group members by attendance status (using Slack user IDs for real @mentions 🐾)
-  // Support both "Leave" (regular days) and "Holiday" (holidays/offdays) 
-  const groups: Record<string, string[]> = { "Office": [], "WFH": [], "Leave": [], "Holiday": [] };
-
-  for (let col = 1; col < headers.length - 1; col++) {
-    const status = todayRow[col];
-    const memberId = idRow[col] as string;
-
-    if (memberId) {
-      if (status === "H. Office") groups["Office"].push(memberId);
-      else if (status === "H. WFH") groups["WFH"].push(memberId);
-      else if (groups[status]) groups[status].push(memberId);
-    }
-  }
+  // 2. Read sheet data and group members
+  const groups = getAttendanceGroupsByDate(today, todayStr);
+  if (!groups) return; // Exit if no valid data
 
   // Treat 'Holiday' and 'Leave' identically for the UI — just combined as "ON LEAVE / HOLIDAY" 🐾
   const combinedOut = [...groups["Leave"], ...groups["Holiday"]];
@@ -272,6 +306,101 @@ function sendDailySlackBriefing(): void {
   } catch (error) {
     console.error(error as Error);
     sendOwnerReport(false, "sendDailySlackBriefing", error);
+  }
+}
+
+/**
+ * Searches Slack for a past daily briefing message by date and updates it with fresh sheet data.
+ * Does not trigger new notifications for channel members. 🐾
+ * @param {string} dateStr - The date to update in yyyy-MM-dd format
+ */
+function updateHistoricSlackBriefing(dateStr: string): void {
+  const { SLACK_TOKEN, SLACK_CHANNEL_ID } = getProperties();
+  const targetDate = new Date(dateStr);
+
+  // 1. Get updated groups strictly from the sheet
+  const groups = getAttendanceGroupsByDate(targetDate, dateStr);
+  if (!groups) {
+    console.warn(`🙀 Could not find valid data for ${dateStr} to update.`);
+    sendOwnerReport(false, "updateHistoricSlackBriefing", `No valid data found in sheet for ${dateStr}.`);
+    return;
+  }
+
+  const combinedOut = [...groups["Leave"], ...groups["Holiday"]];
+  const dateHeading = Utilities.formatDate(targetDate, CONFIG.TIMEZONE, "EEEE, MMM d");
+  const blocks = buildDailyBriefingBlocks(dateHeading, { "Office": groups["Office"], "WFH": groups["WFH"], "Leave": combinedOut });
+
+  // 2. Calculate Unix timestamps for the start and end of `dateStr` in the configured timezone
+  // Apps Script automatically assumes the script timezone when using `new Date("yyyy-MM-dd")`
+  // But let's be explicitly safe and generate boundaries
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const startOfDay = new Date(year, month - 1, day, 0, 0, 0);
+  const endOfDay = new Date(year, month - 1, day, 23, 59, 59);
+
+  const oldest = (startOfDay.getTime() / 1000).toString();
+  const latest = (endOfDay.getTime() / 1000).toString();
+
+  // 3. Search Slack history
+  const historyUrl = `${CONFIG.SLACK_API_BASE}/conversations.history?channel=${SLACK_CHANNEL_ID}&oldest=${oldest}&latest=${latest}`;
+  const getOptions: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions = {
+    method: "get",
+    headers: { Authorization: `Bearer ${SLACK_TOKEN}` }
+  };
+
+  try {
+    const historyResponse = UrlFetchApp.fetch(historyUrl, getOptions);
+    const historyResult = JSON.parse(historyResponse.getContentText());
+
+    if (!historyResult.ok) {
+      throw new Error(`Failed to fetch history: ${historyResult.error}`);
+    }
+
+    // 4. Find our bot's message containing the correct date heading
+    let targetMsgId: string | null = null;
+    const dateHeadingLower = dateHeading.toLowerCase();
+
+    for (const msg of historyResult.messages) {
+      if ((msg.bot_id || msg.app_id) && msg.text && msg.text.toLowerCase().includes(dateHeadingLower)) {
+        targetMsgId = msg.ts;
+        break;
+      }
+    }
+
+    if (!targetMsgId) {
+      console.warn(`🙀 No briefing message found on Slack for ${dateStr}. Did I sleep in that day?`);
+      sendOwnerReport(false, "updateHistoricSlackBriefing", `Could not find a Slack message to update for ${dateStr}.`);
+      return;
+    }
+
+    // 5. Update the message silently!
+    const updateUrl = `${CONFIG.SLACK_API_BASE}/chat.update`;
+    const updatePayload = {
+      channel: SLACK_CHANNEL_ID,
+      ts: targetMsgId,
+      text: `<!here> — 🐾 ${dateHeading} Daily Briefing (Updated)`,
+      blocks: blocks
+    };
+
+    const patchOptions: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions = {
+      method: "post",
+      contentType: "application/json",
+      headers: { Authorization: `Bearer ${SLACK_TOKEN}` },
+      payload: JSON.stringify(updatePayload)
+    };
+
+    const updateResponse = UrlFetchApp.fetch(updateUrl, patchOptions);
+    const updateResult = JSON.parse(updateResponse.getContentText());
+
+    if (!updateResult.ok) {
+      throw new Error(`Failed to update message: ${updateResult.error}`);
+    }
+
+    console.log(`😸 Successfully updated roll call for ${dateStr}!`);
+    sendOwnerReport(true, "updateHistoricSlackBriefing", `Silently updated Slack briefing for \`${dateStr}\`.`);
+
+  } catch (error) {
+    console.error(error as Error);
+    sendOwnerReport(false, "updateHistoricSlackBriefing", error);
   }
 }
 
