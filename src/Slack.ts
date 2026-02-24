@@ -131,7 +131,7 @@ function buildDailyBriefingBlocks(dateHeading: string, groups: Record<string, st
       // 🐾 True 3-column table — header row + mentions row
       type: "table",
       rows: [
-        [cell("🏢 ON-SITE", true), cell("🏠 WFH", true), cell("🌴 ON LEAVE", true)],
+        [cell("🏢 ON-SITE", true), cell("🏠 WFH", true), cell("🌴 ON LEAVE / HOLIDAY", true)],
         [memberCell(groups["Office"]), memberCell(groups["WFH"]), memberCell(groups["Leave"])]
       ]
     },
@@ -203,20 +203,26 @@ function sendDailySlackBriefing(): void {
   }
 
   // 4. Group members by attendance status (using Slack user IDs for real @mentions 🐾)
-  const groups: Record<string, string[]> = { "Office": [], "WFH": [], "Leave": [] };
+  // Support both "Leave" (regular days) and "Holiday" (holidays/offdays) 
+  const groups: Record<string, string[]> = { "Office": [], "WFH": [], "Leave": [], "Holiday": [] };
 
   for (let col = 1; col < headers.length - 1; col++) {
     const status = todayRow[col];
     const memberId = idRow[col] as string;
 
-    if (groups[status] && memberId) {
-      groups[status].push(memberId);
+    if (memberId) {
+      if (status === "H. Office") groups["Office"].push(memberId);
+      else if (status === "H. WFH") groups["WFH"].push(memberId);
+      else if (groups[status]) groups[status].push(memberId);
     }
   }
 
+  // Treat 'Holiday' and 'Leave' identically for the UI — just combined as "ON LEAVE / HOLIDAY" 🐾
+  const combinedOut = [...groups["Leave"], ...groups["Holiday"]];
+
   // 5. Build the Block Kit message
   const dateHeading = Utilities.formatDate(today, CONFIG.TIMEZONE, "EEEE, MMM d");
-  const blocks = buildDailyBriefingBlocks(dateHeading, groups);
+  const blocks = buildDailyBriefingBlocks(dateHeading, { "Office": groups["Office"], "WFH": groups["WFH"], "Leave": combinedOut });
 
   // 6. Send the main message to Slack
   const url = `${CONFIG.SLACK_API_BASE}/chat.postMessage`;

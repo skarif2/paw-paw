@@ -4,8 +4,11 @@ const SHEET_DATE_PATTERN = /^\d{4}-\d{2}$/;
 /** Valid attendance statuses for a standard working day */
 const ATTENDANCE_OPTIONS = ['Office', 'WFH', 'Leave'] as const;
 
+/** Valid attendance statuses for a holiday (office/wfh are holiday worked) */
+const HOLIDAY_OPTIONS = ['H. Office', 'H. WFH', 'Holiday'] as const;
+
 /** Valid attendance statuses for a team off-day (office is not an option) */
-const OFFDAY_OPTIONS = ['WFH', 'Leave'] as const;
+const OFFDAY_OPTIONS = ['H. WFH', 'Holiday'] as const;
 
 /** Row index of the hidden Slack ID row — stores immutable user IDs beside display names */
 const ID_ROW = 2;
@@ -39,25 +42,31 @@ function columnToLetter(column: number): string {
 }
 
 /**
- * Writes the Office/WFH/Leave summary section below the data rows.
- * Sets labels, a top border, and COUNTIF formulas for each member column.
+ * Writes the summary section below the data rows for WFH, H. Worked, and Leave.
+ * Sets labels, a top border, and formulas for each member column.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - Target sheet
  * @param {number} daysInMonth - Number of data rows (used to anchor the section)
  * @param {number} memberCount - Number of member columns to fill
  * @param {number} totalCols - Total columns (used for the top border span)
+ * @param {string[]} holidayOffdayList - List of current holidays and offdays
  */
-function writeSummarySection(sheet: GoogleAppsScript.Spreadsheet.Sheet, daysInMonth: number, memberCount: number, totalCols: number): void {
+function writeSummarySection(sheet: GoogleAppsScript.Spreadsheet.Sheet, daysInMonth: number, memberCount: number, totalCols: number, holidayOffdayList: string[]): void {
   // +1 for header, +1 for ID row, +1 for gap row, +1 for 1-based = DATA_START + daysInMonth + 1 🐾
   const summaryStartRow = DATA_START + daysInMonth + 1;
-  sheet.getRange(summaryStartRow, 1, 3, 1).setValues([["Office"], ["WFH"], ["Leave"]]).setFontWeight("bold");
+  sheet.getRange(summaryStartRow, 1, 3, 1).setValues([
+    ["WFH"],
+    ["H. Worked"],
+    ["Leave"]
+  ]).setFontWeight("bold");
   sheet.getRange(summaryStartRow, 1, 1, totalCols).setBorder(true, null, null, null, null, null, "black", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   for (let i = 0; i < memberCount; i++) {
     const colLetter = columnToLetter(i + 2);
     // Data starts at DATA_START and runs for daysInMonth rows 🐾
     const dataRange = `${colLetter}${DATA_START}:${colLetter}${DATA_START + daysInMonth - 1}`;
-    sheet.getRange(summaryStartRow, i + 2).setFormula(`=COUNTIF(${dataRange}, "Office")`);
-    sheet.getRange(summaryStartRow + 1, i + 2).setFormula(`=COUNTIF(${dataRange}, "WFH")`);
+
+    sheet.getRange(summaryStartRow, i + 2).setFormula(`=COUNTIF(${dataRange}, "WFH")`);
+    sheet.getRange(summaryStartRow + 1, i + 2).setFormula(`=COUNTIF(${dataRange}, "H. Office") + COUNTIF(${dataRange}, "H. WFH")`);
     sheet.getRange(summaryStartRow + 2, i + 2).setFormula(`=COUNTIF(${dataRange}, "Leave")`);
   }
 }
@@ -108,9 +117,25 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
       .build());
   }
 
+  // 4. Leave Rule — light red background for "Leave" cells
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenTextEqualTo("Leave")
+    .setBackground("#F4CCCC") // Light Red
+    .setFontColor("#CC0000") // Dark Red text
+    .setRanges([dataRange])
+    .build());
+
+  // 5. WFH Rule — light yellow background to signal caution (soft rule of 5 max)
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenTextEqualTo("WFH")
+    .setBackground("#FFF2CC") // Light Yellow (Caution)
+    .setFontColor("#BF9000") // Dark Golden/Yellow text
+    .setRanges([dataRange])
+    .build());
+
   sheet.setConditionalFormatRules(rules);
 
-  // 4. Weekly Borders — draw a thick bottom border after each Sunday to visually group weeks
+  // 5. Weekly Borders — draw a thick bottom border after each Sunday to visually group weeks
   const dateValues = sheet.getRange(DATA_START, 1, totalRows, 1).getValues();
   for (let i = 0; i < dateValues.length; i++) {
     const date = new Date(dateValues[i][0]);
@@ -192,9 +217,10 @@ function createNextMonthSheet(): void {
       teamMembers.forEach(() => rowData.push("-"));
       rowData.push("-");
     } else {
-      const defaultValue = (isHoliday || isOffday) ? "Leave" : "Office";
+      const defaultValue = (isHoliday || isOffday) ? "Holiday" : "Office";
       teamMembers.forEach(() => rowData.push(defaultValue));
-      rowData.push(`=COUNTIF(B${rowNum}:${lastMemberCol}${rowNum}, "Office")`);
+      // Total column just counts the exact number of people who selected "Office" or "H. Office" for today 🐾
+      rowData.push(`=COUNTIF(B${rowNum}:${lastMemberCol}${rowNum}, "Office") + COUNTIF(B${rowNum}:${lastMemberCol}${rowNum}, "H. Office")`);
     }
     rows.push(rowData);
   }
@@ -207,6 +233,7 @@ function createNextMonthSheet(): void {
 
   // 2. SELECTIVE DATA VALIDATION & ROW PROTECTIONS (weekends and holidays are locked)
   const offdayRule = SpreadsheetApp.newDataValidation().requireValueInList([...OFFDAY_OPTIONS], true).build();
+  const holidayRule = SpreadsheetApp.newDataValidation().requireValueInList([...HOLIDAY_OPTIONS], true).build();
   const standardRule = SpreadsheetApp.newDataValidation().requireValueInList([...ATTENDANCE_OPTIONS], true).build();
 
   for (let d = 1; d <= daysInMonth; d++) {
@@ -217,7 +244,9 @@ function createNextMonthSheet(): void {
     if (isWeekend) {
       const p = sheet.getRange(rowNum, 1, 1, headers.length).protect().setDescription(`Weekend ${dateStr}`);
       p.removeEditors(p.getEditors());
-    } else if (isHoliday || isOffday) {
+    } else if (isHoliday) {
+      rowRange.setDataValidation(holidayRule);
+    } else if (isOffday) {
       rowRange.setDataValidation(offdayRule);
     } else {
       rowRange.setDataValidation(standardRule);
@@ -258,8 +287,8 @@ function createNextMonthSheet(): void {
   const totalsProt = sheet.getRange(DATA_START, headers.length, daysInMonth, 1).protect().setDescription("Totals");
   totalsProt.removeEditors(totalsProt.getEditors());
 
-  // 5. SUMMARY SECTION — per-member Office/WFH/Leave counts below the data
-  writeSummarySection(sheet, daysInMonth, teamMembers.length, headers.length);
+  // 5. SUMMARY SECTION — per-member WFH/Holiday worked/Leave counts below the data
+  writeSummarySection(sheet, daysInMonth, teamMembers.length, headers.length, [...holidayList, ...offdayList]);
 
   const summaryStartRow = DATA_START + daysInMonth + 1;
   const summaryProt = sheet.getRange(summaryStartRow, 1, 3, headers.length).protect().setDescription("Summary");
@@ -420,6 +449,10 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
       .requireValueInList([...ATTENDANCE_OPTIONS], true)
       .build();
 
+    const holidayRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList([...HOLIDAY_OPTIONS], true)
+      .build();
+
     const offdayRule = SpreadsheetApp.newDataValidation()
       .requireValueInList([...OFFDAY_OPTIONS], true)
       .build();
@@ -438,8 +471,8 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
     });
 
     // Build column values from pre-computed info
-    const columnValues = joinerDayInfos.map(({ isPast, isWeekend, isHoliday }) =>
-      isPast || isWeekend ? ["-"] : [isHoliday ? "Leave" : "Office"]
+    const columnValues = joinerDayInfos.map(({ isPast, isWeekend, isHoliday, isOffday }) =>
+      isPast || isWeekend ? ["-"] : [(isHoliday || isOffday) ? "Holiday" : "Office"]
     );
 
     sheet.getRange(DATA_START, insertPos, daysInMonth, 1).setValues(columnValues);
@@ -450,7 +483,9 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
       const cell = sheet.getRange(d + DATA_START - 1, insertPos);
       if (isWeekend || isPast) {
         cell.setDataValidation(null);
-      } else if (isHoliday || isOffday) {
+      } else if (isHoliday) {
+        cell.setDataValidation(holidayRule);
+      } else if (isOffday) {
         cell.setDataValidation(offdayRule);
       } else {
         cell.setDataValidation(dropdownRule);
@@ -470,12 +505,12 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
 
   const totalFormulas: any[][] = [];
   for (let r = DATA_START; r < DATA_START + daysInMonth; r++) {
-    totalFormulas.push([`=COUNTIF(B${r}:${memberColLetter}${r}, "Office")`]);
+    totalFormulas.push([`=COUNTIF(B${r}:${memberColLetter}${r}, "Office") + COUNTIF(B${r}:${memberColLetter}${r}, "H. Office")`]);
   }
   sheet.getRange(DATA_START, finalLastCol, daysInMonth, 1).setFormulas(totalFormulas);
 
   const totalMembers = finalLastCol - 2;
-  writeSummarySection(sheet, daysInMonth, totalMembers, finalLastCol);
+  writeSummarySection(sheet, daysInMonth, totalMembers, finalLastCol, [...holidayList, ...offdayList]);
 
   // --- 4. FINAL STYLING & RULES ---
   sheet.getRange(1, 1, 1, finalLastCol).setBackground('#a4c2f4').setHorizontalAlignment("center");
@@ -490,7 +525,7 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
 /**
  * Applies holiday/offday cell values, data validation, protections, and
  * conditional formatting to a single sheet based on the current CONFIG.
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - The sheet to refresh
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - The sheet to update
  * @param {boolean} isFutureSheet - If true, all days are refreshed (day 1 onward); otherwise only today onward
  */
 function refreshSheetHolidayFormatting(sheet: GoogleAppsScript.Spreadsheet.Sheet, isFutureSheet: boolean): void {
@@ -501,6 +536,7 @@ function refreshSheetHolidayFormatting(sheet: GoogleAppsScript.Spreadsheet.Sheet
   const { holidays: holidayList, offdays: offdayList } = getDateConfig();
 
   const offdayRule = SpreadsheetApp.newDataValidation().requireValueInList([...OFFDAY_OPTIONS], true).build();
+  const holidayRule = SpreadsheetApp.newDataValidation().requireValueInList([...HOLIDAY_OPTIONS], true).build();
   const standardRule = SpreadsheetApp.newDataValidation().requireValueInList([...ATTENDANCE_OPTIONS], true).build();
 
   // Fetch protections and column count once — cheaper than per-row API calls 🐾
@@ -525,17 +561,34 @@ function refreshSheetHolidayFormatting(sheet: GoogleAppsScript.Spreadsheet.Sheet
 
       const memberRange = sheet.getRange(rowNum, 2, 1, memberCols);
 
-      // A. Update Cell Values — force 'Leave' for holidays/offdays, restore 'Office' otherwise
+      // A. Update Cell Values — force 'Holiday' for holidays/offdays, restore 'Office' otherwise
       const currentValues = memberRange.getValues()[0];
       const newValues = currentValues.map((val: string) => {
         if (val === '-') return val;
-        if (isHoliday || isOffday) return 'Leave';
-        return (val === 'Leave') ? 'Office' : val; // restore if it was Leave, preserve WFH/Office otherwise
+        
+        if (isHoliday || isOffday) {
+          if (val === 'Leave') return 'Holiday';
+          if (val === 'Office') return 'H. Office';
+          if (val === 'WFH') return 'H. WFH';
+          return val; // preserve 'H. Office', 'H. WFH', 'Holiday'
+        }
+        
+        // It's a regular day
+        if (val === 'Holiday' || val === 'Leave') return 'Office';
+        if (val === 'H. Office') return 'Office';
+        if (val === 'H. WFH') return 'WFH';
+        return val;
       });
       memberRange.setValues([newValues]);
 
-      // B. Update Data Validation — consistent dropdowns for all team off-days
-      memberRange.setDataValidation(isHoliday || isOffday ? offdayRule : standardRule);
+      // B. Update Data Validation — consistent dropdowns
+      if (isHoliday) {
+        memberRange.setDataValidation(holidayRule);
+      } else if (isOffday) {
+        memberRange.setDataValidation(offdayRule);
+      } else {
+        memberRange.setDataValidation(standardRule);
+      }
 
       // C. Update Row Protections — remove stale lock first, then re-add if needed
       const rowDesc = `Offday/Holiday ${dateStr}`;
