@@ -183,32 +183,25 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
 }
 
 /**
- * Creates the next month's sheet based on the latest existing dated sheet.
+/**
+ * Creates a sheet for a specific month (yyyy-MM).
  * Populates it with dates, member columns, data validation, row protections,
  * column protections, summary section, and styling.
  *
+ * @param {string} targetMonth - Month string in 'yyyy-MM' format.
+ *
  * @remarks
  * Fetches current Slack channel members to populate the roster.
- * If no dated sheet exists yet, defaults to the current calendar month.
  */
-function createNextMonthSheet(): void {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = ss.getSheets();
-
-  let latestDate: Date | null = null;
-  for (const sh of sheets) {
-    const name = sh.getName();
-    if (SHEET_DATE_PATTERN.test(name)) {
-      const [year, month] = name.split('-').map(Number);
-      const sheetDate = new Date(year, month - 1, 1);
-      if (!latestDate || sheetDate > latestDate) latestDate = sheetDate;
-    }
+function createSheetForMonth(targetMonth: string): void {
+  if (!SHEET_DATE_PATTERN.test(targetMonth)) {
+    console.error(`🙀 Hiss! Invalid target month: ${targetMonth}. Expected yyyy-MM.`);
+    return;
   }
 
-  const now = new Date();
-  const targetDate = !latestDate
-    ? new Date(now.getFullYear(), now.getMonth(), 1)
-    : new Date(latestDate.getFullYear(), latestDate.getMonth() + 1, 1);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const [year, month] = targetMonth.split('-').map(Number);
+  const targetDate = new Date(year, month - 1, 1);
 
   const newSheetName = Utilities.formatDate(targetDate, CONFIG.TIMEZONE, "yyyy-MM");
   if (ss.getSheetByName(newSheetName)) return;
@@ -801,12 +794,31 @@ function refreshHolidayFormatting(): void {
 }
 
 /**
- * Creates the next month's sheet if today is on or after the 25th.
+ * Creates the sheets for the next two months.
  * Called nightly by `sendTomorrowHeadcount` as a monthly admin check.
+ * Example: On Feb 25th, it ensures both March and April sheets exist.
  */
 function checkAndCreateFutureSheet(): void {
   const today = new Date();
-  if (today.getDate() >= 25) {
-    createNextMonthSheet();
+  
+  // 🐾 Only execute this heavy creation logic exactly on the 25th
+  if (today.getDate() === 25) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 🐾 Always ensure "Current Month + 1" and "Current Month + 2" exist
+    const month1Date = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const month2Date = new Date(today.getFullYear(), today.getMonth() + 2, 1);
+
+    const month1Str = Utilities.formatDate(month1Date, CONFIG.TIMEZONE, "yyyy-MM");
+    const month2Str = Utilities.formatDate(month2Date, CONFIG.TIMEZONE, "yyyy-MM");
+    
+    // 🐾 Create them if they are missing
+    if (!ss.getSheetByName(month1Str)) {
+      createSheetForMonth(month1Str);
+    }
+    
+    if (!ss.getSheetByName(month2Str)) {
+      createSheetForMonth(month2Str);
+    }
   }
 }
