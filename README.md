@@ -96,7 +96,7 @@ Paw-Paw automates all of this:
 | Morning (~9 AM) | `sendDailySlackBriefing` runs → posts today's Office/WFH/Leave summary to Slack with a thread |
 | Throughout day | Team members update their own status cells in the Sheet (dropdowns, protected columns) |
 | Evening (~4:30 PM) | `sendTomorrowHeadcount` runs → reads tomorrow's Office count → posts to Discord → locks tomorrow's row |
-| 25th of the month | `sendTomorrowHeadcount` also calls `checkAndCreateFutureSheet()` → provisions the next-next month's sheet |
+| 25th of the month | `sendTomorrowHeadcount` also calls `checkAndCreateFutureSheet()` → provisions the next two months' sheets (Current Month + 1, Current Month + 2) |
 
 ---
 
@@ -421,9 +421,9 @@ Everything related to creating, populating, and maintaining the Google Sheets li
 
 ---
 
-#### `createNextMonthSheet(): void`
+#### `createSheetForMonth(targetMonth?: string): void`
 
-**Purpose:** Creates the *next* month's attendance sheet from scratch, fully populated and protected.
+**Purpose:** Creates a new dated roster sheet based on the given month `yyyy-MM` or automatically determines the next chronological month.
 
 **Trigger:** Called manually from the menu, or automatically by `checkAndCreateFutureSheet()` on the 25th.
 
@@ -507,7 +507,7 @@ After processing, recalculates Total column formulas and rewrites the summary se
 
 #### `checkAndCreateFutureSheet(): void`
 
-**Purpose:** Thin wrapper that calls `createNextMonthSheet()` only if today is on or after the 25th. Called by `sendTomorrowHeadcount` every evening.
+**Purpose:** Thin wrapper that calls `createSheetForMonth()` only if today is exactly the 25th. Called by `sendTomorrowHeadcount` every evening. Provisions the sheet for both `Current Month + 1` and `Current Month + 2` to guarantee we never miss a month and always have one extra future month prepared.
 
 ---
 
@@ -620,13 +620,14 @@ If Discord returns 404 (message was deleted), falls back to `sendNewDiscordMessa
 
 ``` plaintext
 Paw-Paw 🐱
-├── Sync Roster with Slack          → syncAllActiveSheets()
-├── Send Daily Slack Briefing       → sendDailySlackBriefing()
+├── 🔄 Sync Roster with Slack       → promptSyncAllActiveSheets()
+├── 📢 Send Daily Slack Briefing    → promptSendDailySlackBriefing()
+├── 📝 Update Slack Message...      → promptUpdateSlackBriefing()
 ├── ─────────────────────
-├── Refresh Holiday Colors 🎌       → refreshHolidayFormatting()
+├── 🎌 Refresh Holiday Colors       → promptRefreshHolidayFormatting()
 ├── ─────────────────────
-├── Create Next Month Sheet         → createNextMonthSheet()
-└── Force Tomorrow Headcount        → sendTomorrowHeadcount()
+├── 📅 Create Sheet for Month...    → promptCreateSheetForMonth()
+└── 🍽️ Force Tomorrow Headcount     → promptSendTomorrowHeadcount()
 ```
 
 ---
@@ -670,11 +671,12 @@ The **Paw-Paw 🐱** custom menu is visible only to the spreadsheet owner. Acces
 
 | Menu Item | Function Called | When to Use |
 | --------- | ---------------- | ------------- |
-| **Sync Roster with Slack** | `syncAllActiveSheets()` | When someone joins/leaves the Slack channel and you want to update the sheet immediately, without waiting for the next automated run. Also updates all future month sheets. |
-| **Send Daily Slack Briefing** | `sendDailySlackBriefing()` | If the morning trigger fails or you want to manually post the briefing (e.g., for testing). Note: this will post a new message even if one was already sent today. |
-| **Refresh Holiday Colors 🎌** | `refreshHolidayFormatting()` | After updating the `Holidays` sheet tab (adding/removing/changing dates), run this to re-apply colors, data validation, and row protections to all current and future month sheets. |
-| **Create Next Month Sheet** | `createNextMonthSheet()` | To manually provision next month's sheet ahead of the automated 25th-of-month check. Safe to run multiple times; it exits early if the sheet already exists. |
-| **Force Tomorrow Headcount** | `sendTomorrowHeadcount()` | If the evening trigger failed and you need to manually post the headcount to Discord and lock the row. |
+| **🔄 Sync Roster with Slack** | `promptSyncAllActiveSheets()` | When someone joins/leaves the Slack channel and you want to update the sheet immediately, without waiting for the next automated run. Also updates all future month sheets. |
+| **📢 Send Daily Slack Briefing** | `promptSendDailySlackBriefing()` | If the morning trigger fails or you want to manually post the briefing (e.g., for testing). Note: this will post a new message even if one was already sent today. |
+| **📝 Update Slack Message...** | `promptUpdateSlackBriefing()` | Manually trigger a silent update to a historic Slack summary message. |
+| **🎌 Refresh Holiday Colors** | `promptRefreshHolidayFormatting()` | After updating the `Holidays` sheet tab (adding/removing/changing dates), run this to re-apply colors, data validation, and row protections to all current and future month sheets. |
+| **📅 Create Sheet for Month...** | `promptCreateSheetForMonth()` | Prompts the user for a specific month (yyyy-MM) to create. Safe to run multiple times; it exits early if the sheet already exists. |
+| **🍽️ Force Tomorrow Headcount** | `promptSendTomorrowHeadcount()` | If the evening trigger failed and you need to manually post the headcount to Discord and lock the row. |
 
 ---
 
@@ -986,7 +988,7 @@ A: You can edit tomorrow's Total cell directly in the sheet before the evening t
 
 **Q: What happens on the 25th of the month?**
 
-A: When `sendTomorrowHeadcount` runs on the evening of the 25th, it calls `checkAndCreateFutureSheet()`, which calls `createNextMonthSheet()`. This provisions the sheet for *next* month (e.g., if it's January 25th, it creates March's sheet). February's sheet should already exist (having been created on December 25th). This ensures there's always a future month sheet ready before the current month ends.
+A: When `sendTomorrowHeadcount` runs on the evening of the 25th, it calls `checkAndCreateFutureSheet()`, which verifies and provisions the sheets for *the next two* months (e.g., if it's January 25th, it ensures both February and March sheets exist). This safety catch ensures there's always a full future month sheet ready even if a previous run was missed.
 
 ---
 
