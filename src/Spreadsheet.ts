@@ -88,7 +88,14 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
   const dataRange = sheet.getRange(DATA_START, 1, totalRows, totalCols);
   const rules: GoogleAppsScript.Spreadsheet.ConditionalFormatRule[] = [];
 
-  // 1. Weekend Rule — grey out Saturday and Sunday rows
+  // 1. Today Rule — highlight the current day dynamically (Highest Priority)
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(`=INT($A${DATA_START})=TODAY()`)
+    .setBackground("#cfe2f3") // Light blue
+    .setRanges([dataRange])
+    .build());
+
+  // 2. Weekend Rule — grey out Saturday and Sunday rows
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied(`=WEEKDAY($A${DATA_START}, 2) > 5`)
     .setBackground("#EFEFEF")
@@ -96,7 +103,7 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
     .setRanges([dataRange])
     .build());
 
-  // 2. Holiday Rule — light green background for national holidays
+  // 3. Holiday Rule — light green background for national holidays
   const { holidays, offdays } = getDateConfig();
   if (holidays.length > 0) {
     const holidayStrings = holidays.map(h => `"${h.date}"`).join(",");
@@ -110,7 +117,7 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
       .build());
   }
 
-  // 3. Offday Rule — light orange background for team off-days
+  // 4. Offday Rule — light orange background for team off-days
   if (offdays.length > 0) {
     const offdayStrings = offdays.map(h => `"${h.date}"`).join(",");
     const offdayFormula = `=AND(ISNUMBER(MATCH(TEXT($A${DATA_START}, "yyyy-mm-dd"), {${offdayStrings}}, 0)), WEEKDAY($A${DATA_START}, 2) <= 5)`;
@@ -123,7 +130,7 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
       .build());
   }
 
-  // 4. Leave Rule — light red background for "Leave" cells
+  // 5. Leave Rule — light red background for "Leave" cells
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo("Leave")
     .setBackground("#F4CCCC") // Light Red
@@ -131,7 +138,7 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
     .setRanges([dataRange])
     .build());
 
-  // 5. WFH Rule — light yellow background to signal caution (soft rule of 5 max)
+  // 6. WFH Rule — light yellow background to signal caution (soft rule of 5 max)
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo("WFH")
     .setBackground("#FFF2CC") // Light Yellow (Caution)
@@ -141,7 +148,7 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
 
   const { permittedHomeOffice, workingHolidays: wHolidays } = getDateConfig();
 
-  // 6. Working Holidays — highlight the entire row for these special days
+  // 7. Working Holidays — highlight the entire row for these special days
   if (wHolidays.length > 0) {
     const wHolidayStrings = wHolidays.map(h => `"${h.date}"`).join(",");
     const wHolidayFormula = `=ISNUMBER(MATCH(TEXT($A${DATA_START}, "yyyy-mm-dd"), {${wHolidayStrings}}, 0))`;
@@ -153,7 +160,7 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
       .build());
   }
 
-  // 7. Permitted Home Office Rule — highlight the entire row for each active range
+  // 8. Permitted Home Office Rule — highlight the entire row for each active range
   permittedHomeOffice.forEach(range => {
     if (range.start && range.end) {
       const phFormula = `=AND(TEXT($A${DATA_START}, "yyyy-mm-dd")>="${range.start}", TEXT($A${DATA_START}, "yyyy-mm-dd")<="${range.end}")`;
@@ -168,7 +175,7 @@ function addFormattingRules(sheet: GoogleAppsScript.Spreadsheet.Sheet, totalRows
 
   sheet.setConditionalFormatRules(rules);
 
-  // 8. Weekly Borders — draw a thick bottom border after each Sunday to visually group weeks
+  // 9. Weekly Borders — draw a thick bottom border after each Sunday to visually group weeks
   const dateValues = sheet.getRange(DATA_START, 1, totalRows, 1).getValues();
   for (let i = 0; i < dateValues.length; i++) {
     const date = new Date(dateValues[i][0]);

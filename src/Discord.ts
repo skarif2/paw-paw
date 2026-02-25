@@ -149,7 +149,7 @@ function getMealMessageContent(dateStr: string, yesCount: number): string {
     return `Lunch: **0**, Iftar: **${yesCount}**`;
   }
 
-  return `**${yesCount}**`;
+  return `Lunch: **${yesCount}**`;
 }
 
 /**
