@@ -9,7 +9,6 @@ interface AppConfig {
   SLACK_API_BASE: string;
   DISCORD: { USERNAME: string; AVATAR_URL: string };
   TIMEZONE: string;
-  EXCLUDED_USERS: string[];
 }
 
 interface ScriptProperties {
@@ -18,6 +17,7 @@ interface ScriptProperties {
   SLACK_CHANNEL_ID: string;
   SLACK_OWNER_ID: string;
   GOOGLE_SHEET_ID: string;
+  EXCLUDED_USERS: string[];
   LAST_SLACK_MESSAGE_TS?: string;
   LAST_DATE?: string;
   LAST_DISCORD_MESSAGE_ID?: string;

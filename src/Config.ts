@@ -6,10 +6,10 @@ const CONFIG: AppConfig = {
     AVATAR_URL: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f37d.png',
   },
   TIMEZONE: 'GMT+6', // e.g. 'Asia/Dhaka', 'UTC', 'America/New_York'
-  EXCLUDED_USERS: [], // 🐾 Slack IDs of users the bot should completely ignore (e.g. admins)
 };
 
 const PROPERTY_KEYS = {
+  EXCLUDED_USERS: 'EXCLUDED_USERS',
   DISCORD_WEBHOOK: 'DISCORD_WEBHOOK',
   SLACK_TOKEN: 'SLACK_TOKEN',
   SLACK_CHANNEL_ID: 'SLACK_CHANNEL_ID',
@@ -32,6 +32,7 @@ function getProperties(): ScriptProperties {
       SLACK_CHANNEL_ID: props.getProperty(PROPERTY_KEYS.SLACK_CHANNEL_ID) || '',
       SLACK_OWNER_ID: props.getProperty(PROPERTY_KEYS.SLACK_OWNER_ID) || '',
       GOOGLE_SHEET_ID: props.getProperty(PROPERTY_KEYS.GOOGLE_SHEET_ID) || '',
+      EXCLUDED_USERS: (props.getProperty(PROPERTY_KEYS.EXCLUDED_USERS) || '').split(',').map(s => s.trim()).filter(Boolean),
     };
   }
   return _propertyCache;

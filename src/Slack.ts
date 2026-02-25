@@ -75,7 +75,7 @@ function getChannelUsers(): Record<string, SlackUser> {
     }
 
     const allMemberIds: string[] = result.data.members;
-    const userIds = allMemberIds.filter(id => !CONFIG.EXCLUDED_USERS.includes(id));
+    const userIds = allMemberIds.filter(id => !getProperties().EXCLUDED_USERS.includes(id));
     
     // We only fetch info for IDs that are not excluded 🐾
     const userInfoBatch = getUserInfoBatch(userIds);
@@ -214,7 +214,7 @@ function getAttendanceGroupsByDate(targetDate: Date, dateStr: string): Record<st
     const memberId = idRow[col] as string;
 
     if (memberId) {
-      if (CONFIG.EXCLUDED_USERS.includes(memberId)) continue; // 🐾 Invisible cats
+      if (getProperties().EXCLUDED_USERS.includes(memberId)) continue; // 🐾 Invisible cats
 
       if (status === "H. Office") groups["Office"].push(memberId);
       else if (status === "H. WFH" || status === "P. WFH") groups["WFH"].push(memberId);
