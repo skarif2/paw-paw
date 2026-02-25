@@ -280,7 +280,6 @@ const CONFIG: AppConfig = {
     AVATAR_URL: '...',    // Avatar shown on Discord messages
   },
   TIMEZONE: 'GMT+6',
-  EXCLUDED_USERS: [],     // Slack IDs of users the bot should completely ignore (e.g. admins)
 };
 ```
 
@@ -326,7 +325,7 @@ All communication with the Slack API lives here.
 **How it works:**
 
 1. Calls `conversations.members` with `limit=100`, paginating via cursor up to 5 pages (500 members max).
-2. Filters out any Slack user IDs present in `CONFIG.EXCLUDED_USERS` (these members are treated as if they are not in the channel completely).
+2. Filters out any Slack user IDs present in the `EXCLUDED_USERS` script property (these members are treated as if they are not in the channel completely).
 3. For each page of remaining member IDs, calls `getUserInfoBatch()`.
 4. Returns a map of `userId → SlackUser { name, email, image }`.
 
@@ -690,6 +689,13 @@ All sensitive configuration is stored in **Google Apps Script Script Properties*
 2. Click ⚙️ **Project Settings** (gear icon in left sidebar).
 3. Scroll down to **Script Properties**.
 4. Click **Add script property** and add each key-value pair below.
+
+---
+
+### `EXCLUDED_USERS`
+
+- **What it is:** A comma-separated list of Slack User IDs that the bot should completely ignore. This is useful for excluding administrators or bots from the roster sync and headcounts.
+- **Format:** `U01XY789Z, U02AB345C` (Spaces after commas are allowed). Leave blank if not needed.
 
 ---
 
