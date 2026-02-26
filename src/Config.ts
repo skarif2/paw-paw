@@ -3,7 +3,7 @@ const CONFIG: AppConfig = {
   SLACK_API_BASE: 'https://slack.com/api',
   DISCORD: {
     USERNAME: 'Saga Check-in 🍽️',
-    AVATAR_URL: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f37d.png',
+    AVATAR_URL: 'https://saganews.com/hs-fs/hubfs/saga-icon.png?width=120&height=120&name=saga-icon.png',
   },
   TIMEZONE: 'GMT+6', // e.g. 'Asia/Dhaka', 'UTC', 'America/New_York'
 };
