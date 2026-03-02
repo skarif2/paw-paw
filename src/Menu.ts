@@ -13,6 +13,7 @@ function onOpen(): void {
     .addItem('📅 Create Sheet', 'promptCreateSheetForMonth')
     .addItem('🛠️ Sync With Slack', 'promptSyncAllActiveSheets')
     .addItem('⚙️ Refresh Holidays', 'promptRefreshHolidayFormatting')
+    .addItem('🔒 Lock Row', 'promptLockRowByDate')
     .addSeparator()
     .addItem('📢 Daily Briefing', 'promptSendDailySlackBriefing')
     .addItem('🪄 Update Briefing', 'promptUpdateSlackBriefing')
@@ -151,5 +152,32 @@ function promptCreateSheetForMonth(): void {
     createSheetForMonth(inputStr);
   } else {
     ui.alert("😴 Cancelled. The future can wait.");
+  }
+}
+
+/**
+ * Prompts the owner for a date and locks the corresponding row. 🐾
+ */
+function promptLockRowByDate(): void {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.prompt(
+    "Lock Row by Date 🔒",
+    "Enter the date you want to lock in yyyy-MM-dd format (e.g. 2026-02-25):",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response.getSelectedButton() === ui.Button.OK) {
+    const inputStr = response.getResponseText().trim();
+    
+    // Validate format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(inputStr)) {
+      ui.alert("🙀 Hiss!", "Invalid format. Dates must be exactly yyyy-MM-dd.", ui.ButtonSet.OK);
+      return;
+    }
+
+    ui.alert("😸 On it!", `Snapping on the padlocks for ${inputStr}...`, ui.ButtonSet.OK);
+    lockRowByDate(inputStr);
+  } else {
+    ui.alert("😴 Cancelled. The row remains open.");
   }
 }
