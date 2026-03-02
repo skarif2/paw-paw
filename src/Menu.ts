@@ -18,7 +18,8 @@ function onOpen(): void {
     .addItem('📢 Daily Briefing', 'promptSendDailySlackBriefing')
     .addItem('🪄 Update Briefing', 'promptUpdateSlackBriefing')
     .addSeparator()
-    .addItem('🍽️ Update Headcount', 'promptSendTomorrowHeadcount')
+    .addItem('🍽️ Send Headcount', 'promptSendTomorrowHeadcount')
+    .addItem('🪄 Update Headcount', 'promptUpdateDiscordMessage')
     .addToUi();
 }
 
@@ -179,5 +180,51 @@ function promptLockRowByDate(): void {
     lockRowByDate(inputStr);
   } else {
     ui.alert("😴 Cancelled. The row remains open.");
+  }
+}
+
+/**
+ * Prompts the owner for a date and headcount to update the Discord meal message manually. 🐾
+ */
+function promptUpdateDiscordMessage(): void {
+  const ui = SpreadsheetApp.getUi();
+  const promptMessage = "Update Meal Message 🍽️\n\n"
+    + "Please enter the target DATE and HEADCOUNT separated by a comma. (e.g. 2026-03-04, 15)\n\n"
+    + "⚠️ REMEMBER:\n"
+    + "- The date you pick should be the date of the meal.\n"
+    + "- If you are running this AFTER the normal evening schedule (but before midnight), use TOMORROW's date.\n"
+    + "- If you are running this AFTER midnight (on the actual morning of the meal), use TODAY's date.\n"
+    + "- Skip weekends and offdays!\n\n"
+    + "Format: yyyy-MM-dd, count";
+
+  const response = ui.prompt("Update Discord Meal Message 🪄", promptMessage, ui.ButtonSet.OK_CANCEL);
+
+  if (response.getSelectedButton() === ui.Button.OK) {
+    const inputStr = response.getResponseText().trim();
+    const parts = inputStr.split(',');
+
+    if (parts.length !== 2) {
+      ui.alert("🙀 Hiss!", "Invalid format. Must be `yyyy-MM-dd, count`.", ui.ButtonSet.OK);
+      return;
+    }
+
+    const dateStr = parts[0].trim();
+    const countStr = parts[1].trim();
+    const yesCount = Number(countStr);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      ui.alert("🙀 Hiss!", "Invalid date format. Must be exactly yyyy-MM-dd.", ui.ButtonSet.OK);
+      return;
+    }
+
+    if (isNaN(yesCount) || yesCount < 0) {
+      ui.alert("🙀 Hiss!", "Invalid headcount. Must be a positive number or zero.", ui.ButtonSet.OK);
+      return;
+    }
+
+    ui.alert("😸 On it!", `Updating Discord webhook for ${dateStr} with ${yesCount} hungry humans...`, ui.ButtonSet.OK);
+    sendOrUpdateDiscordMessage(dateStr, yesCount);
+  } else {
+    ui.alert("😴 Cancelled. The discord message is unharmed.");
   }
 }
