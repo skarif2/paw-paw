@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["../src/**/*.ts", "**/*.ts"],
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "rootDir": "..",
+    "types": ["google-apps-script", "jest", "node"]
+  }
+}
