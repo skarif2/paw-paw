@@ -40,7 +40,9 @@ function lockRowByDate(date: string): void {
         const protection = sheet.getRange(rowNum, 1, 1, data[i].length).protect();
         protection.setDescription(`Locked Past Date: ${rowDateStr}`);
         protection.removeEditors(protection.getEditors());
-        protection.setWarningOnly(true)
+        if (protection.canDomainEdit()) {
+          protection.setDomainEdit(false);
+        }
       }
     }
   }

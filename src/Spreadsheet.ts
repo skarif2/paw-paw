@@ -330,11 +330,6 @@ function createSheetForMonth(targetMonth: string): void {
     } else {
       rowRange.setDataValidation(standardRule);
     }
-
-    if (holEvent || offEvent || wholEvent) {
-      const p = sheet.getRange(rowNum, 1, 1, headers.length).protect().setDescription(`Offday/Holiday ${dateStr}`);
-      p.removeEditors(p.getEditors());
-    }
   }
 
   // 3. INDIVIDUAL COLUMN PROTECTIONS — each member can only edit their own column
@@ -751,16 +746,11 @@ function refreshSheetHolidayFormatting(sheet: GoogleAppsScript.Spreadsheet.Sheet
         memberRange.setDataValidation(standardRule);
       }
 
-      // C. Update Row Protections — remove stale lock first, then re-add if needed
+      // C. Update Row Protections — remove stale lock first (we no longer lock these rows)
       const rowDesc = `Offday/Holiday ${dateStr}`;
       allProtections.forEach(p => {
         if (p.getDescription() === rowDesc) p.remove();
       });
-
-      if (holEvent || offEvent || wholEvent) {
-        const p = sheet.getRange(rowNum, 1, 1, totalCols).protect().setDescription(rowDesc);
-        p.removeEditors(p.getEditors());
-      }
     }
   }
 
