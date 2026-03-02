@@ -5,11 +5,16 @@
   "scripts": {
     "login": "clasp login",
     "build": "tsc && cp src/appsscript.json dist/appsscript.json",
-    "push": "pnpm run build && clasp push"
+    "push": "pnpm run build && clasp push",
+    "test": "jest"
   },
   "devDependencies": {
     "@google/clasp": "^3.2.0",
     "@types/google-apps-script": "^1.0.83",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.3.3",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.7.0"
   }
 }
