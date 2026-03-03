@@ -24,9 +24,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install
         
-      - name: Setup Clasp Credentials
-        run: echo "$CLASP_JSON" > .clasp.json
+      - name: Setup Clasp Configuration and Credentials
+        run: |
+          echo "$CLASPRC_JSON" > ~/.clasprc.json
+          echo "$CLASP_JSON" > .clasp.json
         env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
           CLASP_JSON: ${{ secrets.CLASP_JSON }}
           
       - name: Push to Google Apps Script
