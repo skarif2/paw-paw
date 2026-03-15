@@ -20,24 +20,38 @@ function lockRowByDate(date: string): void {
   const dateToLock = new Date(date);
 
   // Find the current month's sheet
-  const sheetName = Utilities.formatDate(dateToLock, CONFIG.TIMEZONE, "yyyy-MM");
+  const sheetName = Utilities.formatDate(
+    dateToLock,
+    CONFIG.TIMEZONE,
+    'yyyy-MM',
+  );
   const sheet = ss.getSheetByName(sheetName);
 
   if (!sheet) return;
 
   const data = sheet.getDataRange().getValues();
-  const dateStr = Utilities.formatDate(dateToLock, CONFIG.TIMEZONE, "yyyy-MM-dd");
+  const dateStr = Utilities.formatDate(
+    dateToLock,
+    CONFIG.TIMEZONE,
+    'yyyy-MM-dd',
+  );
 
   // Skip index 0 (header) and index 1 (hidden ID row) — data rows start at index 2 🐾
   for (let i = 2; i < data.length; i++) {
     const rowDate = data[i][0];
 
     if (rowDate instanceof Date) {
-      const rowDateStr = Utilities.formatDate(rowDate, CONFIG.TIMEZONE, "yyyy-MM-dd");
+      const rowDateStr = Utilities.formatDate(
+        rowDate,
+        CONFIG.TIMEZONE,
+        'yyyy-MM-dd',
+      );
 
       if (rowDateStr === dateStr) {
         const rowNum = i + 1; // +1 because arrays are 0-indexed but sheet rows are 1-indexed
-        const protection = sheet.getRange(rowNum, 1, 1, data[i].length).protect();
+        const protection = sheet
+          .getRange(rowNum, 1, 1, data[i].length)
+          .protect();
         protection.setDescription(`Locked Past Date: ${rowDateStr}`);
         protection.removeEditors(protection.getEditors());
         if (protection.canDomainEdit()) {
@@ -46,7 +60,7 @@ function lockRowByDate(date: string): void {
       }
     }
   }
-  console.log("🔒 Row locked — no edits allowed past this point.");
+  console.log('🔒 Row locked — no edits allowed past this point.');
 }
 
 /**
@@ -59,14 +73,34 @@ function sendTomorrowHeadcount(): void {
     const tomorrow = new Date(now);
     tomorrow.setDate(now.getDate() + 1);
 
-    const tomorrowStr = Utilities.formatDate(tomorrow, CONFIG.TIMEZONE, "yyyy-MM-dd");
-    const tomorrowSheetName = Utilities.formatDate(tomorrow, CONFIG.TIMEZONE, "yyyy-MM");
+    const tomorrowStr = Utilities.formatDate(
+      tomorrow,
+      CONFIG.TIMEZONE,
+      'yyyy-MM-dd',
+    );
+    const tomorrowSheetName = Utilities.formatDate(
+      tomorrow,
+      CONFIG.TIMEZONE,
+      'yyyy-MM',
+    );
+
+    const { offdays, noFoodDays } = getDateConfig();
 
     const isWeekend = tomorrow.getDay() === 0 || tomorrow.getDay() === 6;
-    const isOffday = getDateConfig().offdays.some(h => h.date === tomorrowStr);
+    const isOffday = offdays.some((h) => h.date === tomorrowStr);
+    const isNoFoodDay = noFoodDays.some((d) => d.date === tomorrowStr);
 
-    if (isWeekend || isOffday) {
-      console.log(`😴 Napping — ${tomorrowStr} is a non-working day, no headcount needed.`);
+    if (isWeekend) {
+      console.log(
+        `😴 Napping — ${tomorrowStr} is a non-working day, no headcount needed.`,
+      );
+      return;
+    }
+
+    if (isOffday || isNoFoodDay) {
+      console.log(
+        `🐟🚫 No food arranged for ${tomorrowStr} — skipping the Discord meal order. Slack still purrs on! 😸`,
+      );
       return;
     }
 
@@ -74,7 +108,9 @@ function sendTomorrowHeadcount(): void {
     const sheet = ss.getSheetByName(tomorrowSheetName);
 
     if (!sheet) {
-      console.error(`🙀 Sheet ${tomorrowSheetName} has vanished! Cannot send headcount.`);
+      console.error(
+        `🙀 Sheet ${tomorrowSheetName} has vanished! Cannot send headcount.`,
+      );
       return;
     }
 
@@ -85,7 +121,11 @@ function sendTomorrowHeadcount(): void {
     for (let i = 2; i < data.length; i++) {
       const rowDate = data[i][0];
       if (rowDate instanceof Date) {
-        const rowDateStr = Utilities.formatDate(rowDate, CONFIG.TIMEZONE, "yyyy-MM-dd");
+        const rowDateStr = Utilities.formatDate(
+          rowDate,
+          CONFIG.TIMEZONE,
+          'yyyy-MM-dd',
+        );
 
         if (rowDateStr === tomorrowStr) {
           yesCount = data[i][data[i].length - 1];
@@ -95,25 +135,29 @@ function sendTomorrowHeadcount(): void {
     }
 
     // 1. Send the final count to Discord
-    console.log(`🐟 Placing the lunch order for ${tomorrowStr}: ${yesCount} hungry humans.`);
+    console.log(
+      `🐟 Placing the lunch order for ${tomorrowStr}: ${yesCount} hungry humans.`,
+    );
     sendOrUpdateDiscordMessage(tomorrowStr, Number(yesCount));
 
     // 2. Lock the row for tomorrow — no take-backs 🔒
     lockRowByDate(tomorrowStr);
 
     // 3. Monthly admin check: create next-next month's sheet if we're on the 25th
-    if (typeof checkAndCreateFutureSheet === "function") {
+    if (typeof checkAndCreateFutureSheet === 'function') {
       checkAndCreateFutureSheet();
     }
 
-    console.log(`😸 Purr-fect! Order placed and roster locked for ${tomorrowStr}.`);
+    console.log(
+      `😸 Purr-fect! Order placed and roster locked for ${tomorrowStr}.`,
+    );
 
     const summary = `Headcount sent for ${tomorrowStr}. Today's row is locked.`;
-    sendOwnerReport(true, "sendTomorrowHeadcount", summary);
+    sendOwnerReport(true, 'sendTomorrowHeadcount', summary);
   } catch (error) {
     console.error(error as Error);
     // Pass the full error object so we capture the stack trace in the DM
-    sendOwnerReport(false, "sendTomorrowHeadcount", error);
+    sendOwnerReport(false, 'sendTomorrowHeadcount', error);
   }
 }
 
@@ -125,7 +169,9 @@ function sendTomorrowHeadcount(): void {
 function sendOrUpdateDiscordMessage(dateStr: string, yesCount: number): void {
   const props = PropertiesService.getScriptProperties();
   const lastDate = props.getProperty(PROPERTY_KEYS.LAST_DATE);
-  const lastMessageId = props.getProperty(PROPERTY_KEYS.LAST_DISCORD_MESSAGE_ID);
+  const lastMessageId = props.getProperty(
+    PROPERTY_KEYS.LAST_DISCORD_MESSAGE_ID,
+  );
 
   if (lastDate === dateStr && lastMessageId) {
     updateExistingDiscordMessage(lastMessageId, yesCount, dateStr);
@@ -145,7 +191,9 @@ function getMealMessageContent(dateStr: string, yesCount: number): string {
 
   // 🐾 Check if dateStr falls broadly into any of the Permitted HO ranges
   // Assuming Permitted HO maps to Ramadan rules for meals.
-  const isPermittedHO = permittedHomeOffice.some(pHO => dateStr >= pHO.start && dateStr <= pHO.end);
+  const isPermittedHO = permittedHomeOffice.some(
+    (pHO) => dateStr >= pHO.start && dateStr <= pHO.end,
+  );
 
   if (isPermittedHO) {
     return `Lunch: **0**, Iftar: **${yesCount}**`;
@@ -161,7 +209,10 @@ function getMealMessageContent(dateStr: string, yesCount: number): string {
  * @param {string} content - The message content string
  * @returns {GoogleAppsScript.URL_Fetch.URLFetchRequestOptions}
  */
-function buildDiscordOptions(method: GoogleAppsScript.URL_Fetch.HttpMethod, content: string): GoogleAppsScript.URL_Fetch.URLFetchRequestOptions {
+function buildDiscordOptions(
+  method: GoogleAppsScript.URL_Fetch.HttpMethod,
+  content: string,
+): GoogleAppsScript.URL_Fetch.URLFetchRequestOptions {
   return {
     method,
     contentType: 'application/json',
@@ -180,12 +231,19 @@ function buildDiscordOptions(method: GoogleAppsScript.URL_Fetch.HttpMethod, cont
  * @param {number} yesCount - Meal count
  * @param {string} dateStr - Date string for content generation
  */
-function updateExistingDiscordMessage(messageId: string, yesCount: number, dateStr: string): void {
+function updateExistingDiscordMessage(
+  messageId: string,
+  yesCount: number,
+  dateStr: string,
+): void {
   const { DISCORD_WEBHOOK } = getProperties();
   const mealContent = getMealMessageContent(dateStr, yesCount);
 
   const patchUrl = getWebhookMessageUrl(DISCORD_WEBHOOK, messageId);
-  const result = makeHttpRequest(`${patchUrl}?wait=true`, buildDiscordOptions('patch', mealContent));
+  const result = makeHttpRequest(
+    `${patchUrl}?wait=true`,
+    buildDiscordOptions('patch', mealContent),
+  );
 
   if (!result.success && result.responseCode === 404) {
     console.log('🐾 Old message gone — pawing a fresh one to Discord.');
@@ -203,7 +261,10 @@ function sendNewDiscordMessage(dateStr: string, yesCount: number): void {
   const { DISCORD_WEBHOOK } = getProperties();
   const mealContent = getMealMessageContent(dateStr, yesCount);
 
-  const result = makeHttpRequest(`${DISCORD_WEBHOOK}?wait=true`, buildDiscordOptions('post', mealContent));
+  const result = makeHttpRequest(
+    `${DISCORD_WEBHOOK}?wait=true`,
+    buildDiscordOptions('post', mealContent),
+  );
 
   if (result.success && result.data.id) {
     const props = PropertiesService.getScriptProperties();
