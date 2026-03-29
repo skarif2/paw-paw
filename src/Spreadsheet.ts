@@ -746,25 +746,30 @@ function refreshSheetHolidayFormatting(sheet: GoogleAppsScript.Spreadsheet.Sheet
       } else {
         memberRange.setDataValidation(standardRule);
       }
-
-      // C. Remove ALL stale row-level locks on this special-day row 🐾
-      // Old versions of the code locked holiday/offday rows individually.
-      // Those stale protections block member dropdowns on their own column cells,
-      // because any owner-only protection on a cell wins over a column protection that
-      // grants the member edit access. We nuke any row lock that isn't part of our
-      // current scheme (member columns, weekends, structural, or past-date locks).
-      const VALID_DESCS = /^(member:|Weekend |Headers$|Member IDs$|Dates$|Totals$|Summary$|Locked Past Date:)/;
-      allProtections.forEach(p => {
-        const desc = p.getDescription();
-        if (VALID_DESCS.test(desc)) return; // known good protection — leave it alone 🐾
-        const r = p.getRange();
-        // Only remove if this protection overlaps the current row
-        if (r.getRow() <= rowNum && r.getLastRow() >= rowNum) {
-          p.remove();
-          console.log(`🚫 Removed stale row lock on row ${rowNum}: "${desc}"`);
-        }
-      });
     }
+  }
+
+  // 2. STALE ROW LOCK CLEANUP — runs for ALL sheets (current month and future) 🐾
+  // Old versions of the code locked holiday/offday rows individually with owner-only
+  // protections. Those stale locks block member dropdowns on their own column cells,
+  // because any owner-only protection on a cell wins over the column protection that
+  // grants the member edit access. We remove any row lock that isn't part of the
+  // current protection scheme (member columns, weekends, structural, or past-date locks).
+  const VALID_DESCS = /^(member:|Weekend |Headers$|Member IDs$|Dates$|Totals$|Summary$|Locked Past Date:)/;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const rowNum = d + DATA_START - 1;
+    const date = new Date(year, month - 1, d);
+    if (date.getDay() === 0 || date.getDay() === 6) continue; // Weekend locks are intentional 🐾
+
+    allProtections.forEach(p => {
+      const desc = p.getDescription();
+      if (VALID_DESCS.test(desc)) return; // known good protection — leave it alone 🐾
+      const r = p.getRange();
+      if (r.getRow() <= rowNum && r.getLastRow() >= rowNum) {
+        p.remove();
+        console.log(`🚫 Removed stale row lock on row ${rowNum}: "${desc}"`);
+      }
+    });
   }
 
   // 4. RE-APPLY CONDITIONAL FORMATTING — reads fresh HOLIDAYS/OFFDAYS from CONFIG 🐾

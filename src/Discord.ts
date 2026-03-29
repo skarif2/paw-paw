@@ -187,17 +187,17 @@ function sendOrUpdateDiscordMessage(dateStr: string, yesCount: number): void {
  * @returns {string} The formatted content string to post
  */
 function getMealMessageContent(dateStr: string, yesCount: number): string {
-  const { permittedHomeOffice } = getDateConfig();
+  // const { permittedHomeOffice } = getDateConfig();
 
   // 🐾 Check if dateStr falls broadly into any of the Permitted HO ranges
   // Assuming Permitted HO maps to Ramadan rules for meals.
-  const isPermittedHO = permittedHomeOffice.some(
-    (pHO) => dateStr >= pHO.start && dateStr <= pHO.end,
-  );
+  // const isPermittedHO = permittedHomeOffice.some(
+  //   (pHO) => dateStr >= pHO.start && dateStr <= pHO.end,
+  // );
 
-  if (isPermittedHO) {
-    return `Lunch: **0**, Iftar: **${yesCount}**`;
-  }
+  // if (isPermittedHO) {
+  //   return `Lunch: **0**, Iftar: **${yesCount}**`;
+  // }
 
   return `Lunch: **${yesCount}**`;
 }
