@@ -43,14 +43,14 @@ describe('Discord Module', () => {
       expect(content).toBe('Lunch: **15**');
     });
 
-    it('should format Iftar only when within Permitted HO date range', () => {
+    it('should format lunch even when within Permitted HO date range (logic disabled)', () => {
       (global as any)._dateConfig = {
         permittedHomeOffice: [{ start: '2026-02-18', end: '2026-03-20', name: 'Ramadan' }],
         holidays: [], offdays: [], workingHolidays: []
       };
       
       const content = getMealMessageContent('2026-03-05', 10);
-      expect(content).toBe('Lunch: **0**, Iftar: **10**');
+      expect(content).toBe('Lunch: **10**');
     });
   });
 
