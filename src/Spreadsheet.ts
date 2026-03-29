@@ -488,10 +488,11 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
           range.setDataValidation(null); // Strip dropdown so hyphens are allowed
           range.setValues(Array(remainingDays).fill(["-"]));
         }
-        // Strip column protection using the stable ID-based description
+        // Strip ALL column protection segments for this leaver (segmented approach may create multiple) 🐾
         const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
-        const userProt = protections.find(p => p.getDescription() === `member:${leaverId}`);
-        if (userProt) userProt.removeEditors(userProt.getEditors());
+        protections
+          .filter(p => p.getDescription() === `member:${leaverId}`)
+          .forEach(p => p.removeEditors(p.getEditors()));
       }
     }
   });
@@ -602,7 +603,7 @@ function processSheetSync(sheet: GoogleAppsScript.Spreadsheet.Sheet, currentSlac
       // We do not need to rewrite the cell notes in column 1 here.
     }
 
-    // Description keyed by user ID — survives future renames 😸
+    // Full column protection — only this member can edit their own column 😸
     const prot = sheet.getRange(DATA_START, insertPos, daysInMonth, 1).protect().setDescription(`member:${user.id}`);
     prot.removeEditors(prot.getEditors());
     if (user.email) prot.addEditor(user.email);
@@ -745,13 +746,30 @@ function refreshSheetHolidayFormatting(sheet: GoogleAppsScript.Spreadsheet.Sheet
       } else {
         memberRange.setDataValidation(standardRule);
       }
-
-      // C. Update Row Protections — remove stale lock first (we no longer lock these rows)
-      const rowDesc = `Offday/Holiday ${dateStr}`;
-      allProtections.forEach(p => {
-        if (p.getDescription() === rowDesc) p.remove();
-      });
     }
+  }
+
+  // 2. STALE ROW LOCK CLEANUP — runs for ALL sheets (current month and future) 🐾
+  // Old versions of the code locked holiday/offday rows individually with owner-only
+  // protections. Those stale locks block member dropdowns on their own column cells,
+  // because any owner-only protection on a cell wins over the column protection that
+  // grants the member edit access. We remove any row lock that isn't part of the
+  // current protection scheme (member columns, weekends, structural, or past-date locks).
+  const VALID_DESCS = /^(member:|Weekend |Headers$|Member IDs$|Dates$|Totals$|Summary$|Locked Past Date:)/;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const rowNum = d + DATA_START - 1;
+    const date = new Date(year, month - 1, d);
+    if (date.getDay() === 0 || date.getDay() === 6) continue; // Weekend locks are intentional 🐾
+
+    allProtections.forEach(p => {
+      const desc = p.getDescription();
+      if (VALID_DESCS.test(desc)) return; // known good protection — leave it alone 🐾
+      const r = p.getRange();
+      if (r.getRow() <= rowNum && r.getLastRow() >= rowNum) {
+        p.remove();
+        console.log(`🚫 Removed stale row lock on row ${rowNum}: "${desc}"`);
+      }
+    });
   }
 
   // 4. RE-APPLY CONDITIONAL FORMATTING — reads fresh HOLIDAYS/OFFDAYS from CONFIG 🐾

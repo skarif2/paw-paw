@@ -3,6 +3,7 @@ interface DateConfig {
   offdays: { date: string; name: string }[];
   workingHolidays: { date: string; name: string }[];
   permittedHomeOffice: { name: string; start: string; end: string }[];
+  noFoodDays: { date: string; name: string }[];
 }
 
 interface AppConfig {

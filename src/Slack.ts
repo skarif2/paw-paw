@@ -234,16 +234,10 @@ function sendDailySlackBriefing(): void {
   const today = new Date();
   const todayStr = Utilities.formatDate(today, CONFIG.TIMEZONE, "yyyy-MM-dd");
 
-  // 1. QUICK EXIT: Skip weekends, holidays, and off-days — the cat is napping 😴
+  // 1. QUICK EXIT: Skip weekends only — even on holidays, the cat has things to say 😼
   const dayOfWeek = today.getDay();
   if (dayOfWeek === 0 || dayOfWeek === 6) {
     console.log("😴 It's the weekend — this cat is napping. No briefing today.");
-    return;
-  }
-
-  const { holidays, offdays } = getDateConfig();
-  if (holidays.some(h => h.date === todayStr) || offdays.some(o => o.date === todayStr)) {
-    console.log("😴 It's an off-day — paws up. No briefing today.");
     return;
   }
 

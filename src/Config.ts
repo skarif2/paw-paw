@@ -48,6 +48,8 @@ let _dateConfig: DateConfig | null = null;
  * @remarks
  * Sheet layout expected:
  * - Col A: Date  |  Col B: Name  |  Col C: Type (`Holiday` or `Offday`)
+ * - Col E: Permitted HO name  |  Col F: Start  |  Col G: End
+ * - Col I: No Food dates (date values, independent rows) 🐟🚫
  * - E2: `Start`, F2: Ramadan start date
  * - E3: `End`,   F3: Ramadan end date
  */
@@ -60,7 +62,7 @@ function getDateConfig(): DateConfig {
   if (!sheet) {
     // 🙀 Hissing — no Holidays tab found, falling back to empty lists
     console.warn('🙀 Holidays sheet not found — date config will be empty!');
-    _dateConfig = { holidays: [], offdays: [], workingHolidays: [], permittedHomeOffice: [] };
+    _dateConfig = { holidays: [], offdays: [], workingHolidays: [], permittedHomeOffice: [], noFoodDays: [] };
     return _dateConfig;
   }
 
@@ -69,6 +71,7 @@ function getDateConfig(): DateConfig {
   const offdays: { date: string; name: string }[] = [];
   const workingHolidays: { date: string; name: string }[] = [];
   const permittedHomeOffice: { name: string; start: string; end: string }[] = [];
+  const noFoodDays: { date: string; name: string }[] = [];
 
   // Row 0 is the header — start at row 1 🐾
   for (let i = 1; i < data.length; i++) {
@@ -81,6 +84,13 @@ function getDateConfig(): DateConfig {
       if (type === 'Holiday') holidays.push({ date: dateStr, name: holName });
       else if (type === 'Offday') offdays.push({ date: dateStr, name: holName });
       else if (type === 'W. Holiday') workingHolidays.push({ date: dateStr, name: holName });
+    }
+
+    // Col I (index 8): No Food dates — each row may carry an independent no-food date 🐟🚫
+    const rawNoFoodDate = data[i][8];
+    if (rawNoFoodDate instanceof Date) {
+      const noFoodDateStr = Utilities.formatDate(rawNoFoodDate, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+      noFoodDays.push({ date: noFoodDateStr, name: 'No Food' });
     }
 
     // Parse Permitted Home Office ranges from cols E, F, G (indices 4, 5, 6)
@@ -98,7 +108,7 @@ function getDateConfig(): DateConfig {
     }
   }
 
-  _dateConfig = { holidays, offdays, workingHolidays, permittedHomeOffice };
-  console.log(`😸 Date config loaded — ${holidays.length} holiday(s), ${offdays.length} offday(s), ${workingHolidays.length} working holiday(s), ${permittedHomeOffice.length} perm HO range(s).`);
+  _dateConfig = { holidays, offdays, workingHolidays, permittedHomeOffice, noFoodDays };
+  console.log(`😸 Date config loaded — ${holidays.length} holiday(s), ${offdays.length} offday(s), ${workingHolidays.length} working holiday(s), ${permittedHomeOffice.length} perm HO range(s), ${noFoodDays.length} no-food day(s).`);
   return _dateConfig;
 }
