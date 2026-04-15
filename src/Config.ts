@@ -27,11 +27,11 @@ function getProperties(): ScriptProperties {
   if (!_propertyCache) {
     const props = PropertiesService.getScriptProperties();
     _propertyCache = {
-      DISCORD_WEBHOOK: props.getProperty(PROPERTY_KEYS.DISCORD_WEBHOOK) || '',
-      SLACK_TOKEN: props.getProperty(PROPERTY_KEYS.SLACK_TOKEN) || '',
-      SLACK_CHANNEL_ID: props.getProperty(PROPERTY_KEYS.SLACK_CHANNEL_ID) || '',
-      SLACK_OWNER_ID: props.getProperty(PROPERTY_KEYS.SLACK_OWNER_ID) || '',
-      GOOGLE_SHEET_ID: props.getProperty(PROPERTY_KEYS.GOOGLE_SHEET_ID) || '',
+      DISCORD_WEBHOOK: (props.getProperty(PROPERTY_KEYS.DISCORD_WEBHOOK) || '').trim(),
+      SLACK_TOKEN: (props.getProperty(PROPERTY_KEYS.SLACK_TOKEN) || '').trim(),
+      SLACK_CHANNEL_ID: (props.getProperty(PROPERTY_KEYS.SLACK_CHANNEL_ID) || '').trim(),
+      SLACK_OWNER_ID: (props.getProperty(PROPERTY_KEYS.SLACK_OWNER_ID) || '').trim(),
+      GOOGLE_SHEET_ID: (props.getProperty(PROPERTY_KEYS.GOOGLE_SHEET_ID) || '').trim(),
       EXCLUDED_USERS: (props.getProperty(PROPERTY_KEYS.EXCLUDED_USERS) || '').split(',').map(s => s.trim()).filter(Boolean),
     };
   }
