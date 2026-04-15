@@ -116,6 +116,7 @@ function sendTomorrowHeadcount(): void {
 
     const data = sheet.getDataRange().getValues();
     let yesCount: number | string = 0;
+    const totalColIndex = data[0].indexOf('Total');
 
     // Skip index 0 (header) and index 1 (hidden ID row) — data rows start at index 2 🐾
     for (let i = 2; i < data.length; i++) {
@@ -128,7 +129,7 @@ function sendTomorrowHeadcount(): void {
         );
 
         if (rowDateStr === tomorrowStr) {
-          yesCount = data[i][data[i].length - 1];
+          yesCount = totalColIndex !== -1 ? data[i][totalColIndex] : data[i][data[i].length - 1];
           break;
         }
       }
