@@ -39,16 +39,31 @@ describe('Http Module', () => {
     expect(result.data).toBe(null);
   });
 
-  it('should retry on 429 rate limit with exponential backoff', () => {
+  it('should retry on 429 rate limit with the updated fallback', () => {
     mockFetch
-      .mockReturnValueOnce({ getResponseCode: () => 429, getContentText: () => 'Rate Limit' })
+      .mockReturnValueOnce({ getResponseCode: () => 429, getContentText: () => 'Rate Limit', getAllHeaders: () => ({}) })
       .mockReturnValueOnce({ getResponseCode: () => 200, getContentText: () => '{"ok": true}' });
 
     const result = makeHttpRequest('https://example.com');
     
     expect(result.success).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(mockSleep).toHaveBeenCalledWith(2000); // attempt 1 -> 2^1 * 1000 = 2000
+    expect(mockSleep).toHaveBeenCalledWith(20000); // attempt 1 fallback -> 20000
+  });
+
+  it('should retry on 429 by precisely parsing the Retry-After header', () => {
+    mockFetch
+      .mockReturnValueOnce({ 
+        getResponseCode: () => 429, 
+        getContentText: () => 'Rate Limit', 
+        getAllHeaders: () => ({ 'Retry-After': '6.5' }) 
+      })
+      .mockReturnValueOnce({ getResponseCode: () => 200, getContentText: () => '{"ok": true}' });
+
+    const result = makeHttpRequest('https://example.com');
+    
+    expect(result.success).toBe(true);
+    expect(mockSleep).toHaveBeenCalledWith(6500); // 6.5s * 1000 = 6500ms
   });
 
   it('should handle runtime exceptions and retry', () => {
