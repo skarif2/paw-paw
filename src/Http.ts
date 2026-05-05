@@ -26,11 +26,44 @@ function makeHttpRequest(url: string, options: GoogleAppsScript.URL_Fetch.URLFet
         };
       }
 
-      // Handle rate limiting with exponential backoff, capped at 10 seconds
+      // Handle rate limiting with explicit header parsing and safety caps
       if (responseCode === 429) {
-        const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
-        console.warn(`😾 Rate limited — napping for ${delay}ms then trying again (attempt ${attempt}).`);
-        Utilities.sleep(delay);
+        let delayMs = 0;
+        lastError = new Error(`HTTP 429: Rate Limited (${responseText || 'No Body'})`);
+
+        // 1. Try checking the HTTP headers first
+        const headers = response.getAllHeaders();
+        const retryAfterKey = Object.keys(headers).find(k => k.toLowerCase() === 'retry-after');
+        if (retryAfterKey) {
+          const headerVal = parseFloat(headers[retryAfterKey] as string);
+          if (!isNaN(headerVal)) delayMs = headerVal * 1000;
+        }
+
+        // 2. Override with JSON body if available (usually more precise for Discord webhooks)
+        try {
+          if (responseText) {
+            const errorBody = JSON.parse(responseText);
+            if (errorBody && typeof errorBody.retry_after === 'number') {
+              delayMs = errorBody.retry_after * 1000;
+            }
+          }
+        } catch (e) {
+          // Ignore parse errors (e.g. Cloudflare HTML pages)
+        }
+
+        // 3. Fallback & Caps
+        if (delayMs <= 0) {
+          const fallbacks = [20000, 60000, 120000];
+          delayMs = fallbacks[attempt - 1] || 120000;
+        }
+
+        // 4. Safety abort to prevent Google Apps Script timeouts
+        if (delayMs > 150000) {
+          throw new Error(`Discord demanded a sleep of ${delayMs / 1000}s, which exceeds the 150s safety cap. Aborting!`);
+        }
+
+        console.warn(`😾 Rate limited — napping for ${delayMs}ms then trying again (attempt ${attempt}).`);
+        Utilities.sleep(delayMs);
         continue;
       }
 
