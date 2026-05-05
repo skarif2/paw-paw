@@ -295,8 +295,6 @@ function sendDailySlackBriefing(): void {
     const threadResult = JSON.parse(threadResponse.getContentText());
 
     if (!threadResult.ok) throw new Error(`Slack Thread Failed: ${threadResult.error}`);
-
-    sendOwnerReport(true, "sendDailySlackBriefing", "Daily briefing and thread posted.");
   } catch (error) {
     console.error(error as Error);
     sendOwnerReport(false, "sendDailySlackBriefing", error);
@@ -390,7 +388,6 @@ function updateHistoricSlackBriefing(dateStr: string): void {
     }
 
     console.log(`😸 Successfully updated roll call for ${dateStr}!`);
-    sendOwnerReport(true, "updateHistoricSlackBriefing", `Silently updated Slack briefing for \`${dateStr}\`.`);
 
   } catch (error) {
     console.error(error as Error);

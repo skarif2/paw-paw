@@ -152,9 +152,6 @@ function sendTomorrowHeadcount(): void {
     console.log(
       `😸 Purr-fect! Order placed and roster locked for ${tomorrowStr}.`,
     );
-
-    const summary = `Headcount sent for ${tomorrowStr}. Today's row is locked.`;
-    sendOwnerReport(true, 'sendTomorrowHeadcount', summary);
   } catch (error) {
     console.error(error as Error);
     // Pass the full error object so we capture the stack trace in the DM
